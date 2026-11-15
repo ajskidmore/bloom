@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Bloom · wellness tracker</title>
+  <meta name="theme-color" content="#f6f1e7" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <a class="brand" href="#today"><span class="brand-mark">🌼</span> Bloom</a>
+      <nav class="tabs" id="tabbar" hidden>
+        <a href="#today" data-tab="today"><span>🌱</span><b>Today</b></a>
+        <a href="#food" data-tab="food"><span>🍽️</span><b>Food</b></a>
+        <a href="#health" data-tab="health"><span>❤️</span><b>Health</b></a>
+        <a href="#trends" data-tab="trends"><span>📈</span><b>Trends</b></a>
+        <a href="#settings" data-tab="settings"><span>⚙️</span><b>Settings</b></a>
+      </nav>
+      <div class="top-right">
+        <a href="#today" class="mini" title="Your flower"><svg id="miniFlower" viewBox="0 0 200 260" aria-hidden="true"></svg><span id="miniPct"></span></a>
+        <div id="userArea" class="user-area"></div>
+      </div>
+    </header>
+
+    <div id="banner" class="banner" hidden>
+      <span id="bannerText"></span>
+      <button class="icon-btn" id="bannerClose" aria-label="Dismiss">✕</button>
+    </div>
+
+    <section id="auth" class="auth card" hidden></section>
+
+    <main id="main" hidden>
+      <div class="date-nav" id="dateNav">
+        <button class="icon-btn" id="datePrev" aria-label="Previous day">‹</button>
+        <button class="date-label" id="dateLabel"></button>
+        <input type="date" id="dateInput" class="date-input" aria-label="Pick a date" />
+        <button class="icon-btn" id="dateNext" aria-label="Next day">›</button>
+        <button class="btn small ghost" id="dateToday" hidden>Today</button>
+      </div>
+
+      <!-- TODAY -->
+      <div id="tab-today">
+        <section class="garden card">
+          <div class="flower-wrap" id="flowerWrap">
+            <svg id="flower" viewBox="0 0 200 260" role="img" aria-label="Your flower"></svg>
+            <div id="drops" class="drops" aria-hidden="true"></div>
+          </div>
+          <div class="garden-info">
+            <div class="bubble" id="bubble">Hi! Water me by checking things off.</div>
+            <input id="flowerName" class="flower-name" maxlength="20" aria-label="Flower name" />
+            <div class="meter"><div id="meterFill"></div></div>
+            <div class="meter-label"><span id="stage">—</span><span id="pct">—</span></div>
+          </div>
+        </section>
+        <div class="list-head"><h2>Your routine</h2><button id="addBtn" class="btn primary">+ Add habit</button></div>
+        <div id="sections"></div>
+      </div>
+
+      <div id="tab-food" hidden><div id="foodView"></div></div>
+      <div id="tab-health" hidden><div id="healthView"></div></div>
+      <div id="tab-trends" hidden><div id="trendsView"></div></div>
+      <div id="tab-settings" hidden><div id="settingsView"></div></div>
+    </main>
+
+    <button id="fab" class="fab" aria-label="Log a meal" title="Log a meal">📷</button>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

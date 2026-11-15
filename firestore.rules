@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(uid) { return request.auth != null && request.auth.uid == uid; }
+
+    // Each signed-in user can only read and write their own data.
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      match /days/{day}   { allow read, write: if isOwner(uid); }
+      match /meals/{meal} { allow read, write: if isOwner(uid); }
+
+      // Meal photos: compressed data URLs, kept under Firestore's 1 MB doc limit.
+      match /photos/{mealId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.data is string
+          && request.resource.data.data.size() < 900000;
+      }
+    }
+  }
+}
