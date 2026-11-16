@@ -30,6 +30,7 @@ export function estimateBurn(type, minutes, intensity, kg) {
   return round(met * (kg || 75) * (minutes / 60));
 }
 
+const shareDefault = () => { try { return localStorage.getItem('bloom-share-workouts') !== '0'; } catch { return true; } };
 export function openWorkoutModal(dateKey, existing) {
   const kg = latestWeight(dateKey) || 75;
   const w = existing || { type: 'strength', minutes: 45, intensity: 'moderate' };
@@ -48,6 +49,7 @@ export function openWorkoutModal(dateKey, existing) {
       <label class="field grow"><span>Note (optional)</span><input name="note" placeholder="e.g. legs day, 5k" value="${esc(w.note || '')}"></label>
     </div>
     <p class="hint" data-hint></p>
+    ${store.mode === 'cloud' ? `<label class="check-row share-row"><input type="checkbox" name="share" ${(existing ? existing.share !== false : shareDefault()) ? 'checked' : ''}><span>Share to my feed <small class="muted">(friends see the type, time, calories and note)</small></span></label>` : ''}
     <div class="dlg-actions">
       ${existing ? '<button type="button" class="btn ghost danger" data-delete>Delete</button>' : ''}
       <span class="spacer"></span>
@@ -84,6 +86,8 @@ export function openWorkoutModal(dateKey, existing) {
     const minutes = +form.minutes.value;
     if (!(minutes > 0)) { form.minutes.focus(); return; }
     const entry = { id: existing?.id || uid('w'), type, minutes, intensity: intensity(), kcal: round(+form.kcal.value || 0), kcalManual: kcalTouched, note: form.note.value.trim() };
+    if (form.share) { entry.share = form.share.checked; try { localStorage.setItem('bloom-share-workouts', entry.share ? '1' : '0'); } catch {} }
+    entry.loggedAt = existing?.loggedAt || Date.now();
     const ws = list();
     const i = ws.findIndex((x) => x.id === entry.id);
     if (i >= 0) ws[i] = entry; else ws.push(entry);

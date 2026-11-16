@@ -9,14 +9,14 @@ import { renderFood, bindFood, openMealModal } from './food.js';
 import { renderHealth, bindHealth } from './health.js';
 import { renderTrends, bindTrends } from './trends.js';
 import { renderSettings, bindSettings } from './settings.js';
-import { renderFriends, initSocial, renderBell } from './social.js';
+import { renderFriends, initSocial, setSocialView } from './social.js';
 
 const TABS = {
   today: { el: '#tab-today', render: renderToday, dated: true },
   food: { el: '#tab-food', render: renderFood, dated: true },
   health: { el: '#tab-health', render: renderHealth, dated: true },
   trends: { el: '#tab-trends', render: renderTrends },
-  friends: { el: '#tab-friends', render: renderFriends },
+  feed: { el: '#tab-friends', render: renderFriends },
   settings: { el: '#tab-settings', render: renderSettings },
 };
 
@@ -57,6 +57,8 @@ document.addEventListener('focusout', () => setTimeout(() => { if (pending && !d
 
 /* ---------- routing ---------- */
 function go(tab) {
+  // #friends opens the Feed tab on its Friends view (invite links and older links use it).
+  if (tab === 'friends' || tab === 'feed') { setSocialView(tab); tab = 'feed'; }
   if (!TABS[tab]) tab = 'today';
   S.tab = tab;
   Object.entries(TABS).forEach(([k, t]) => { $(t.el).hidden = k !== tab; });
@@ -156,7 +158,7 @@ async function boot() {
   onChange((what) => {
     if (what.startsWith?.('error:')) { toast(what.slice(6)); return; }
     if (what === 'user') { onUser(); return; }
-    if (what === 'social') { if (S.user && S.tab === 'friends') renderCurrent(); return; }
+    if (what === 'social') { if (S.user && S.tab === 'feed') renderCurrent(); return; }
     if (S.user) renderCurrent();
   });
   $('#fab').onclick = () => openMealModal({ date: dayKey(S.viewDate) });

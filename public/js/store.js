@@ -124,9 +124,11 @@ export async function firebaseStore(config) {
      profiles/{uid}/friends/{fid}   who can read it
      profiles/{uid}/inbox/{id}      cheers / "request accepted" from friends
      codes/{CODE}                   friend code -> uid
-     requests/{from}_{to}           pending friend requests                         */
+     requests/{from}_{to}           pending friend requests
+     profiles/{uid}/posts/{id}      feed posts (workouts, milestones) with kudos      */
   let socialFn = null;
-  const soc = { incoming: [], outgoing: [], friends: {}, friendIds: [], inbox: [], code: null, ready: false };
+  const EMPTY = () => ({ incoming: [], outgoing: [], friends: {}, friendIds: [], inbox: [], code: null, ready: false, posts: {}, myPosts: [], myPostsReady: false });
+  const soc = EMPTY();
   const pushSocial = () => socialFn?.({ ...soc });
   const ms = (ts) => ts?.toMillis?.() ?? Date.now();
   const profDoc = (id) => F.doc(db, 'profiles', id);
@@ -152,7 +154,7 @@ export async function firebaseStore(config) {
   }
 
   function startSocial() {
-    Object.assign(soc, { incoming: [], outgoing: [], friends: {}, friendIds: [], inbox: [], code: null, ready: false });
+    Object.assign(soc, EMPTY());
     pushSocial();
     if (!uid) return;
     const me = uid;
@@ -165,23 +167,32 @@ export async function firebaseStore(config) {
       soc.inbox = qs.docs.map((d) => ({ id: d.id, ...d.data(), at: ms(d.data().at) })).sort((a, b) => b.at - a.at);
       pushSocial();
     }, fail));
+    const postsQ = (id, n) => F.query(F.collection(db, 'profiles', id, 'posts'), F.orderBy('at', 'desc'), F.limit(n));
+    const toPosts = (id, qs) => qs.docs.map((d) => ({ ...d.data(), id: d.id, uid: id }));
+    unsubs.push(F.onSnapshot(postsQ(me, 60), (qs) => { soc.myPosts = toPosts(me, qs); soc.myPostsReady = true; pushSocial(); }, fail));
     const friendSubs = {};
     unsubs.push(F.onSnapshot(F.collection(db, 'profiles', me, 'friends'), (qs) => {
       const ids = qs.docs.map((d) => d.id);
       soc.friendIds = ids;
-      Object.keys(friendSubs).forEach((id) => { if (!ids.includes(id)) { friendSubs[id](); delete friendSubs[id]; delete soc.friends[id]; } });
+      Object.keys(friendSubs).forEach((id) => { if (!ids.includes(id)) { friendSubs[id](); delete friendSubs[id]; delete soc.friends[id]; delete soc.posts[id]; } });
       // Right after accepting, the friendship may not have reached the server yet, so a refused read is retried.
       const watch = (id, attempt = 0) => {
-        friendSubs[id] = F.onSnapshot(profDoc(id),
-          (s) => { soc.friends[id] = s.exists() ? { ...s.data(), uid: id } : { uid: id }; pushSocial(); },
-          () => {
-            if (attempt < 5) {
-              friendSubs[id] = () => clearTimeout(timer);
-              const timer = setTimeout(() => { if (soc.friendIds.includes(id) && uid === me) watch(id, attempt + 1); }, 1000 * (attempt + 1));
-              return;
-            }
-            soc.friends[id] = { uid: id, hidden: true }; pushSocial();
-          });
+        let failed = false, timer = null;
+        const offs = [];
+        const stop = () => { offs.forEach((u) => u()); clearTimeout(timer); };
+        const onErr = () => {
+          if (failed) return;
+          failed = true;
+          offs.forEach((u) => u());
+          if (attempt < 5) {
+            timer = setTimeout(() => { if (soc.friendIds.includes(id) && uid === me) watch(id, attempt + 1); }, 1000 * (attempt + 1));
+            return;
+          }
+          soc.friends[id] = { uid: id, hidden: true }; soc.posts[id] = []; pushSocial();
+        };
+        friendSubs[id] = stop;
+        offs.push(F.onSnapshot(profDoc(id), (s) => { soc.friends[id] = s.exists() ? { ...s.data(), uid: id } : { uid: id }; pushSocial(); }, onErr));
+        offs.push(F.onSnapshot(postsQ(id, 25), (qs) => { soc.posts[id] = toPosts(id, qs); pushSocial(); }, onErr));
       };
       ids.forEach((id) => {
         if (friendSubs[id]) return;
@@ -229,6 +240,9 @@ export async function firebaseStore(config) {
       await b.commit();
     },
     cheer: (fid, myName, myPhoto) => F.addDoc(F.collection(db, 'profiles', fid, 'inbox'), { type: 'cheer', from: uid, fromName: myName, fromPhoto: myPhoto || '', at: F.serverTimestamp() }),
+    savePost: (id, data, isNew) => uid && F.setDoc(F.doc(db, 'profiles', uid, 'posts', id), isNew ? { ...data, kudos: {} } : data, { merge: true }).catch((e) => console.warn('post', e)),
+    deletePost: (id) => uid && F.deleteDoc(F.doc(db, 'profiles', uid, 'posts', id)).catch((e) => console.warn('post', e)),
+    kudos: (owner, id, myName, on) => F.updateDoc(F.doc(db, 'profiles', owner, 'posts', id), new F.FieldPath('kudos', uid), on ? myName : F.deleteField()),
     clearInbox: (ids) => Promise.all(ids.map((id) => F.deleteDoc(F.doc(db, 'profiles', uid, 'inbox', id)).catch(() => {}))),
   };
 

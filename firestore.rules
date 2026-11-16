@@ -53,6 +53,25 @@ service cloud.firestore {
         allow delete: if isOwner(uid) || isOwner(fid);
       }
 
+      // Feed posts: workouts the owner chose to share, plus habit milestones. Friends can read them and
+      // add or remove only their own kudos. Food, weight, photos, sleep and the journal never go here.
+      match /posts/{pid} {
+        allow read: if isOwner(uid) || isFriendOf(uid);
+        allow delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['kind', 'at', 'day', 'title', 'emoji', 'workout', 'minutes', 'kcal', 'intensity', 'note', 'done', 'total', 'streak', 'kudos'])
+          && request.resource.data.kind in ['workout', 'allDone', 'streak']
+          && request.resource.data.at is number
+          && (!('title' in request.resource.data) || shortStr(request.resource.data.title, 60))
+          && (!('note' in request.resource.data) || shortStr(request.resource.data.note, 200))
+          && (!('kudos' in request.resource.data) || request.resource.data.kudos is map);
+        // A friend giving or taking back kudos: only their own entry in the kudos map may change.
+        allow update: if isFriendOf(uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['kudos'])
+          && request.resource.data.get('kudos', {}).diff(resource.data.get('kudos', {})).affectedKeys().hasOnly([request.auth.uid])
+          && (!(request.auth.uid in request.resource.data.get('kudos', {})) || shortStr(request.resource.data.kudos[request.auth.uid], 40));
+      }
+
       // Cheers and "request accepted" notes, sent only by friends.
       match /inbox/{id} {
         allow read, delete: if isOwner(uid);

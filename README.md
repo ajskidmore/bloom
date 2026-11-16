@@ -16,6 +16,9 @@ and wilts when you don't. Plain HTML/CSS/JS ES modules, no build step. Firebase 
 - **Health**: weight (with BMI and weekly change), sleep hours and quality, water, mood and energy, steps,
   workouts (MET-based calorie estimate, editable), body fat, waist, resting heart rate, and a journal.
 - **Trends**: 7, 30 or 90 days of stat tiles and charts for calories, weight, protein, sleep, steps, water, mood and energy, plus a habit success table.
+- **Feed** (Strava-style): workouts you log post to your feed with time, calories, effort and your note (switch off
+  *Share to my feed* to keep one private, or *Hide* any post). Finishing all your habits and streak milestones post too.
+  Friends give 👏 kudos, and a weekly summary sits on top.
 - **Friends**: everyone gets a friend code and an invite link. Friends see your flower, how many habits you've done today,
   your streak and (optionally) which habits you finished. Food, weight, photos, sleep and the journal are never shared.
   Send a friend a 💧 cheer; either person can remove the friendship.
@@ -51,6 +54,7 @@ If you use a custom domain, add it under **Authentication → Settings → Autho
 ## Data layout
 ```
 profiles/{uid}              progress snapshot friends can read (name, flower, done/total today, streak, finished)
+profiles/{uid}/posts/{id}   feed posts (workout or milestone) with a kudos map {friendUid: name}
 profiles/{uid}/friends/{id} who may read it · profiles/{uid}/inbox/{id} cheers and "request accepted" notes
 codes/{CODE}                friend code -> uid · requests/{from}_{to} pending friend requests
 users/{uid}                 tasks, logs, settings, profile, goals, customFoods

@@ -1,15 +1,17 @@
-/* Friends & notifications.
+/* Feed, friends & notifications.
+   - Feed (Strava-style): workouts you choose to share and habit milestones become posts; friends give kudos.
    - Friends: friend codes + invite links, requests, and a progress snapshot friends can see
      (flower, today's habits done, streak, and optionally which habits). Food, weight, photos,
      sleep and the journal are never shared.
    - Notifications (free plan, no server): a bell in the app, plus device notifications and a daily
      habit reminder while Bloom is open or running in the background on this device.            */
 import { S, store, emit, onChange } from './state.js';
-import { $, esc, addDays, startOfDay, todayKey, toast, modal, debounce, nowHHMM } from './util.js';
+import { $, esc, addDays, startOfDay, startOfWeek, todayKey, dayKey, fromKey, fmtShort, toast, modal, debounce, nowHHMM, sum } from './util.js';
 import { flowerSVG, stageOf, STAGE_LABEL } from './flower.js';
 import { flowerHealth, passed, valueFor } from './habits.js';
+import { WORKOUTS } from './health.js';
 
-export const SOC = { incoming: [], outgoing: [], friends: {}, friendIds: [], inbox: [], code: null, ready: false };
+export const SOC = { incoming: [], outgoing: [], friends: {}, friendIds: [], inbox: [], code: null, ready: false, posts: {}, myPosts: [], myPostsReady: false };
 const social = () => (store?.mode === 'cloud' && S.user && !S.user.local ? store.social : null);
 
 /* ---------- small per-device storage ---------- */
@@ -58,6 +60,49 @@ const publish = debounce(() => {
   lastPublished = key;
   so.publish(snap);
 }, 1500);
+
+/* ================= Feed posts =================
+   Your posts are kept in step with your data: shared workouts from the last 7 days, today's
+   "finished all habits" and streak milestones. Edits and deletes in the Health tab follow.     */
+const W = Object.fromEntries(WORKOUTS.map((w) => [w.id, w]));
+const MILESTONES = [7, 14, 30, 50, 100, 200, 365];
+const SYNC_DAYS = 7;
+const hiddenPosts = () => new Set(S.main.settings.hiddenPosts || []);
+function wantedPosts(snap) {
+  const out = {};
+  for (let i = 0; i < SYNC_DAYS; i++) {
+    const key = dayKey(addDays(startOfDay(new Date()), -i));
+    (S.days[key]?.workouts || []).forEach((w) => {
+      if (w.share === false || !w.id) return;
+      const t = W[w.type] || W.other;
+      out[w.id] = { kind: 'workout', day: key, at: w.loggedAt || fromKey(key).getTime() + 12 * 3600e3, title: t.label, emoji: t.emoji, workout: w.type,
+        minutes: +w.minutes || 0, kcal: +w.kcal || 0, intensity: w.intensity || 'moderate', note: (w.note || '').slice(0, 200) };
+    });
+  }
+  if (snap.total && snap.done >= snap.total) out['done-' + snap.day] = { kind: 'allDone', day: snap.day, at: Date.now(), title: snap.total === 1 ? "Finished today's habit" : `Finished all ${snap.total} habits`, emoji: '🌸', done: snap.done, total: snap.total };
+  if (MILESTONES.includes(snap.streak)) out[`streak-${snap.streak}-${snap.day}`] = { kind: 'streak', day: snap.day, at: Date.now(), title: `${snap.streak}-day streak`, emoji: '🔥', streak: snap.streak };
+  return out;
+}
+const syncPosts = debounce(() => {
+  const so = social();
+  if (!so || !S.mainReady || !SOC.myPostsReady) return;
+  const snap = snapshot(), want = wantedPosts(snap), hidden = hiddenPosts();
+  const have = Object.fromEntries(SOC.myPosts.map((p) => [p.id, p]));
+  const windowStart = dayKey(addDays(startOfDay(new Date()), -(SYNC_DAYS - 1)));
+  Object.entries(want).forEach(([id, p]) => {
+    if (hidden.has(id)) return;
+    const cur = have[id];
+    if (!cur) { so.savePost(id, p, true); return; }
+    const data = { ...p, at: cur.at ?? p.at };
+    if (Object.keys(data).some((k) => JSON.stringify(cur[k]) !== JSON.stringify(data[k]))) so.savePost(id, data, false);
+  });
+  SOC.myPosts.forEach((p) => {
+    if (hidden.has(p.id)) { so.deletePost(p.id); return; }
+    if (want[p.id]) return;
+    if (p.kind === 'workout' && p.day >= windowStart) so.deletePost(p.id);
+    if (p.kind === 'allDone' && p.day === snap.day) so.deletePost(p.id);
+  });
+}, 2000);
 
 /* ================= Device notifications ================= */
 export const notifSupported = () => 'Notification' in window && 'serviceWorker' in navigator;
@@ -138,7 +183,7 @@ function bellHTML() {
       <div class="bell-text"><div>${i.text}</div><small class="muted">${ago(i.at)}</small>
         ${i.req ? `<div class="btn-row"><button class="btn small primary" data-accept="${esc(i.req.id)}">Accept</button><button class="btn small ghost" data-decline="${esc(i.req.id)}">Decline</button></div>` : ''}</div>
     </div>`).join('') : '<p class="muted empty-bell">Nothing yet. Friend requests, cheers and reminders show up here.</p>'}</div>
-  <div class="dlg-actions">${SOC.inbox.length || LS.get('events', []).length ? '<button class="btn ghost" data-clear>Clear all</button>' : ''}<span class="spacer"></span><a class="btn" href="#friends" data-close>Friends</a></div>`;
+  <div class="dlg-actions">${SOC.inbox.length || LS.get('events', []).length ? '<button class="btn ghost" data-clear>Clear all</button>' : ''}<span class="spacer"></span><a class="btn" href="#feed" data-close>Open feed</a></div>`;
 }
 function openBell() {
   bellDlg = modal(bellHTML(), { onClose: () => { bellDlg = null; LS.set('seen', Date.now()); renderBell(); } });
@@ -156,9 +201,10 @@ function openBell() {
 }
 
 /* ================= Watching friends & inbox ================= */
-let primed = false;
+let primed = false, kudosPrimed = false, postsWereReady = false;
 function onSocial(next) {
   Object.assign(SOC, next);
+  if (SOC.myPostsReady && !postsWereReady) { postsWereReady = true; syncPosts(); }
   const pushed = new Set(LS.get('pushed', []));
   const fresh = (id, at) => !pushed.has(id) && at > Date.now() - DAY;
   const mark = (id) => pushed.add(id);
@@ -174,6 +220,17 @@ function onSocial(next) {
     // First load on this device: don't replay old items as notifications.
     SOC.incoming.forEach((r) => mark('req:' + r.id)); SOC.inbox.forEach((m) => mark('in:' + m.id));
     primed = true;
+  }
+  if (SOC.myPostsReady) {
+    SOC.myPosts.forEach((p) => Object.entries(p.kudos || {}).forEach(([kid, nm]) => {
+      const key = `kudos:${p.id}:${kid}`;
+      if (pushed.has(key)) return;
+      mark(key);
+      if (!kudosPrimed) return;
+      addEvent({ id: key, at: Date.now(), icon: '👏', photo: SOC.friends[kid]?.photo, text: `<b>${esc(nm || 'A friend')}</b> gave you kudos on <b>${esc(p.emoji || '')} ${esc(p.title || 'your post')}</b>` });
+      notify(`👏 ${nm || 'A friend'} gave you kudos`, `${p.emoji || ''} ${p.title || ''}`.trim(), { tag: 'kudos', url: '/#feed' });
+    }));
+    kudosPrimed = true;
   }
   if (S.main.settings.notifyFriends !== false) {
     const today = todayKey();
@@ -243,21 +300,16 @@ function friendCard(p) {
     </div>
   </article>`;
 }
-export function renderFriends() {
-  const el = $('#friendsView');
-  if (!social()) {
-    el.innerHTML = `<div class="card empty"><p>Friends need an account. Sign in to share progress with friends.</p></div>`;
-    return;
-  }
+function friendsHTML() {
   const friends = SOC.friendIds.map((id) => SOC.friends[id] || { uid: id }).filter((p) => !p.hidden);
   const pendingAdd = sessionGet();
-  el.innerHTML = `
+  return `
   <div class="friends">
     <section class="card sbox">
       <h3>Your friend code</h3>
       <div class="code-row"><span class="friend-code">${fmtCode(SOC.code)}</span>
         <div class="btn-row"><button class="btn small" data-copy ${SOC.code ? '' : 'disabled'}>Copy code</button><button class="btn small primary" data-invite ${SOC.code ? '' : 'disabled'}>Share invite link</button></div></div>
-      <p class="muted small">Friends see your flower, how many habits you've done today and your streak${shareNames() ? ', plus the names of habits you finished' : ''}. Food, weight, photos, sleep and your journal stay private.</p>
+      <p class="muted small">Friends see your flower, how many habits you've done today, your streak${shareNames() ? ', the names of habits you finished' : ''} and the workouts you share to your feed. Food, weight, photos, sleep and your journal stay private.</p>
     </section>
 
     <section class="card sbox">
@@ -285,8 +337,78 @@ export function renderFriends() {
       <h3>What you share</h3>
       <label class="pref"><span>Your name for friends</span><input data-pubname value="${esc(myName())}" maxlength="40" class="w-160"></label>
       <label class="pref check-row"><input type="checkbox" data-sharenames ${shareNames() ? 'checked' : ''}><span>Show friends the names of habits I finished</span></label>
+      <p class="muted small">Workouts post to your feed unless you turn off <b>Share to my feed</b> when logging one. Use <b>Hide</b> on any of your posts to remove it.</p>
     </section>
   </div>`;
+}
+
+/* ================= Feed view ================= */
+let view = 'feed';
+export function setSocialView(v) { view = v === 'friends' ? 'friends' : 'feed'; }
+const fmtDur = (m) => { m = Math.round(+m || 0); const h = Math.floor(m / 60); return h ? `${h}h ${m % 60}m` : `${m}m`; };
+function when(at) {
+  const d = new Date(at), k = dayKey(d), t = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  if (k === todayKey()) return `Today at ${t}`;
+  if (k === dayKey(addDays(new Date(), -1))) return `Yesterday at ${t}`;
+  return fmtShort(d);
+}
+function weekStats() {
+  const start = startOfWeek(new Date()), keys = [];
+  for (let d = start; d <= new Date(); d = addDays(d, 1)) keys.push(dayKey(d));
+  const ws = keys.flatMap((k) => S.days[k]?.workouts || []);
+  const habitDays = keys.filter((k) => { const d = fromKey(k), ts = dailyTasksOn(d); return ts.length && ts.every((t) => passed(t, valueFor(t, d))); }).length;
+  return { n: ws.length, min: sum(ws.map((w) => w.minutes)), kcal: sum(ws.map((w) => w.kcal)), habitDays };
+}
+function postCard(p) {
+  const mine = p.uid === S.user?.uid;
+  const who = mine ? { name: myName(), photo: myPhoto() } : (SOC.friends[p.uid] || {});
+  const kudos = Object.entries(p.kudos || {});
+  const gave = !mine && (p.kudos || {})[S.user?.uid] != null;
+  const names = kudos.map(([id, n]) => (id === S.user?.uid ? 'You' : n || 'A friend')).sort((a, b) => (b === 'You') - (a === 'You'));
+  const kudosLine = names.length ? (names.length <= 2 ? names.join(' and ') : `${names[0]} and ${names.length - 1} others`) + ' gave kudos' : (mine ? 'No kudos yet' : 'Be the first to give kudos');
+  let body = '';
+  if (p.kind === 'workout') {
+    body = `<div class="post-stats"><div><small>Time</small><b>${fmtDur(p.minutes)}</b></div><div><small>Calories</small><b>${Math.round(p.kcal || 0).toLocaleString()}</b></div><div><small>Effort</small><b>${esc((p.intensity || 'moderate')[0].toUpperCase() + (p.intensity || 'moderate').slice(1))}</b></div></div>`;
+  } else if (p.kind === 'allDone') {
+    body = `<div class="post-stats"><div><small>Habits</small><b>${p.done}/${p.total}</b></div><div><small>Flower</small><b>Watered 🌸</b></div></div>`;
+  } else {
+    body = `<div class="post-stats"><div><small>Streak</small><b>🔥 ${p.streak} days</b></div><div><small>Every habit</small><b>Every day</b></div></div>`;
+  }
+  return `<article class="card post" data-owner="${esc(p.uid)}" data-pid="${esc(p.id)}">
+    <header class="post-head">${avatar(who.photo, who.name)}<div><b>${esc(mine ? 'You' : who.name || 'Friend')}</b><small class="muted">${when(p.at)}</small></div>
+      ${mine ? '<button class="btn small ghost post-hide" data-hide title="Remove this post from your feed">Hide</button>' : ''}</header>
+    <h4 class="post-title"><span class="post-emoji">${esc(p.emoji || '✨')}</span>${esc(p.kind === 'workout' && p.note ? p.note : p.title)}</h4>
+    ${p.kind === 'workout' && p.note ? `<p class="muted small post-sub">${esc(p.title)}</p>` : ''}
+    ${body}
+    <footer class="post-foot"><span class="muted small">${esc(kudosLine)}</span>
+      ${mine ? `<span class="kudos-count">👏 ${kudos.length}</span>` : `<button class="btn small kudos ${gave ? 'on' : ''}" data-kudos aria-pressed="${gave}">👏 ${gave ? 'Kudos given' : 'Give kudos'}${kudos.length ? ` · ${kudos.length}` : ''}</button>`}</footer>
+  </article>`;
+}
+function feedHTML() {
+  const ws = weekStats();
+  const posts = [...SOC.myPosts, ...SOC.friendIds.flatMap((id) => (SOC.friends[id]?.hidden ? [] : SOC.posts[id] || []))]
+    .sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 80);
+  return `<div class="feed">
+    <section class="card week-card">
+      <div class="week-head"><h3>This week</h3><a href="#health" class="small">Log a workout →</a></div>
+      <div class="post-stats"><div><small>Workouts</small><b>${ws.n}</b></div><div><small>Time</small><b>${fmtDur(ws.min)}</b></div><div><small>Calories</small><b>${Math.round(ws.kcal).toLocaleString()}</b></div><div><small>Habit days</small><b>${ws.habitDays}</b></div></div>
+    </section>
+    ${!SOC.friendIds.length ? `<div class="card empty"><p>Add friends to see their workouts and give kudos.</p><button class="btn primary" data-view="friends">Find friends</button></div>` : ''}
+    ${posts.length ? posts.map(postCard).join('') : '<div class="card empty"><p>No activity yet. Log a workout or finish your habits for the day to post here.</p></div>'}
+  </div>`;
+}
+export function renderFriends() {
+  const el = $('#friendsView');
+  if (!social()) {
+    el.innerHTML = `<div class="card empty"><p>The feed needs an account. Sign in to share workouts and progress with friends.</p></div>`;
+    return;
+  }
+  const n = SOC.incoming.length;
+  el.innerHTML = `<div class="seg feed-seg" role="tablist">
+      <button type="button" role="tab" data-view="feed" class="${view === 'feed' ? 'on' : ''}" aria-selected="${view === 'feed'}">Feed</button>
+      <button type="button" role="tab" data-view="friends" class="${view === 'friends' ? 'on' : ''}" aria-selected="${view === 'friends'}">Friends${SOC.friendIds.length ? ` · ${SOC.friendIds.length}` : ''}${n ? ` <span class="seg-badge">${n}</span>` : ''}</button>
+    </div>
+    ${view === 'feed' ? feedHTML() : friendsHTML()}`;
 }
 
 /* ---------- actions ---------- */
@@ -312,6 +434,32 @@ export function bindFriends() {
   root.addEventListener('click', async (e) => {
     const so = social();
     if (!so) return;
+    const v = e.target.closest('[data-view]');
+    if (v) { setSocialView(v.dataset.view); history.replaceState(null, '', '#' + (view === 'friends' ? 'friends' : 'feed')); emit('social'); window.scrollTo({ top: 0 }); return; }
+    const post = e.target.closest('[data-pid]');
+    if (post) {
+      const owner = post.dataset.owner, pid = post.dataset.pid;
+      const k = e.target.closest('[data-kudos]');
+      if (k) {
+        k.disabled = true;
+        const on = k.getAttribute('aria-pressed') !== 'true';
+        try { await so.kudos(owner, pid, myName(), on); } catch (err) { console.error(err); toast("Couldn't update kudos."); k.disabled = false; }
+        return;
+      }
+      if (e.target.closest('[data-hide]')) {
+        const p = SOC.myPosts.find((x) => x.id === pid);
+        if (p?.kind === 'workout') {
+          const ws = (S.days[p.day]?.workouts || []).map((w) => (w.id === pid ? { ...w, share: false } : w));
+          store.saveDay(p.day, { workouts: ws });
+        } else {
+          S.main.settings.hiddenPosts = [...(S.main.settings.hiddenPosts || []), pid].slice(-100);
+          store.saveMain({ settings: S.main.settings });
+        }
+        await so.deletePost(pid);
+        toast('Removed from your feed');
+      }
+      return;
+    }
     if (e.target.closest('[data-copy]')) { try { await navigator.clipboard.writeText(fmtCode(SOC.code)); toast('Code copied'); } catch { toast(fmtCode(SOC.code)); } return; }
     if (e.target.closest('[data-invite]')) { share(`Be my friend on Bloom and let's keep our flowers alive 🌼 My code is ${fmtCode(SOC.code)}.`, inviteLink()); return; }
     const acc = e.target.closest('[data-accept]'); if (acc) { acc.disabled = true; await acceptReq(acc.dataset.accept); return; }
@@ -412,11 +560,11 @@ export function initSocial() {
   bindNotifSettings();
   store.social?.subscribe(onSocial);
   onChange((what) => {
-    if (what === 'user') { primed = false; lastPublished = ''; renderBell(); if (S.user && sessionGet() && location.hash !== '#friends') location.hash = '#friends'; return; }
+    if (what === 'user') { primed = false; kudosPrimed = false; postsWereReady = false; lastPublished = ''; renderBell(); if (S.user && sessionGet() && location.hash !== '#friends') location.hash = '#friends'; return; }
     if (what === 'social' || what.startsWith?.('error:')) return;
-    if (S.user) publish();
+    if (S.user) { publish(); syncPosts(); }
   });
-  setInterval(() => { checkReminder(); if (S.user) publish(); }, 30_000);
+  setInterval(() => { checkReminder(); if (S.user) { publish(); syncPosts(); } }, 30_000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkReminder(); renderBell(); } });
   renderBell();
 }
