@@ -10,6 +10,7 @@ import { renderHealth, bindHealth } from './health.js';
 import { renderTrends, bindTrends } from './trends.js';
 import { renderSettings, bindSettings } from './settings.js';
 import { renderFriends, initSocial, setSocialView } from './social.js';
+import { bindFeedback } from './feedback.js';
 
 const TABS = {
   today: { el: '#tab-today', render: renderToday, dated: true },
@@ -49,9 +50,14 @@ function renderCurrent() {
     return;
   }
   pending = false;
-  tab.render();
-  refreshFlower();
-  renderDateNav();
+  try {
+    tab.render();
+    refreshFlower();
+    renderDateNav();
+  } catch (err) {
+    console.error(err);
+    $(tab.el).insertAdjacentHTML('afterbegin', `<div class="card render-fail"><b>Something went wrong showing this screen.</b><pre>${esc(err?.message || String(err))}</pre><button class="btn small" onclick="window.__bloomReloadFresh && window.__bloomReloadFresh()">Reload</button></div>`);
+  }
 }
 document.addEventListener('focusout', () => setTimeout(() => { if (pending && !document.activeElement?.matches?.('input, textarea, select')) renderCurrent(); }, 0));
 
@@ -142,7 +148,23 @@ function onUser() {
 }
 
 /* ---------- boot ---------- */
+// Phones (especially home-screen apps) can keep an old copy of index.html. If the page is missing
+// parts this code needs, reload once with fresh files instead of failing to a blank screen.
+const PAGE_PARTS = ['#bellBtn', '#tab-friends', '[data-tab="feed"]', '#friendsView'];
+function pageIsStale() { return PAGE_PARTS.some((s) => !document.querySelector(s)); }
 async function boot() {
+  if (pageIsStale()) {
+    let tried = false;
+    try { tried = sessionStorage.getItem('bloom-fresh') === '1'; sessionStorage.setItem('bloom-fresh', '1'); } catch {}
+    if (!tried) {
+      const u = new URL(location.href);
+      u.searchParams.set('r', Date.now().toString(36));
+      location.replace(u.toString());
+      return;
+    }
+    throw new Error('This page is out of date (' + PAGE_PARTS.filter((s) => !document.querySelector(s)).join(', ') + ' missing).');
+  }
+  try { sessionStorage.removeItem('bloom-fresh'); } catch {}
   const forceLocal = new URLSearchParams(location.search).has('local');
   const cfg = forceLocal ? null : await resolveConfig(FIREBASE_CONFIG);
   let s;
@@ -154,7 +176,7 @@ async function boot() {
     showBanner('Preview / local mode: data stays in this browser. Deploy to Firebase for accounts and sync.');
   }
   setStore(s);
-  bindToday(); bindFood(); bindHealth(); bindTrends(); bindSettings(); initSocial();
+  bindToday(); bindFood(); bindHealth(); bindTrends(); bindSettings(); initSocial(); bindFeedback();
   onChange((what) => {
     if (what.startsWith?.('error:')) { toast(what.slice(6)); return; }
     if (what === 'user') { onUser(); return; }
@@ -163,6 +185,7 @@ async function boot() {
   });
   $('#fab').onclick = () => openMealModal({ date: dayKey(S.viewDate) });
   s.start();
+  window.__bloomStarted = true;
   requestAnimationFrame(loop);
 
   let lastDay = dayKey(new Date());
@@ -176,4 +199,16 @@ async function boot() {
 function showBanner(text) { $('#bannerText').textContent = text; $('#banner').hidden = false; }
 $('#bannerClose').onclick = () => { $('#banner').hidden = true; };
 
-boot();
+boot().catch((err) => {
+  console.error(err);
+  const msg = err?.message || String(err);
+  if (window.__bloomBootFail) { window.__bloomBootFail(msg); return; }
+  // An old cached page without the safety net: show the error and a way out anyway.
+  const box = document.createElement('div');
+  box.className = 'boot-fail';
+  box.innerHTML = '<h2>Bloom didn’t start</h2><p>Tap Reload to load the latest version.</p><pre></pre><button type="button" class="btn primary big">Reload</button>';
+  box.querySelector('pre').textContent = msg;
+  box.querySelector('button').onclick = () => { const u = new URL(location.href); u.searchParams.set('r', Date.now().toString(36)); location.replace(u.toString()); };
+  box.style.cssText = 'position:fixed;inset:0;z-index:2000;background:#f6f1e7;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center;font-family:system-ui,sans-serif';
+  document.body.appendChild(box);
+});

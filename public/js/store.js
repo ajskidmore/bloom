@@ -263,9 +263,20 @@ export async function firebaseStore(config) {
   };
   const wrap = (p) => p.catch((e) => { throw friendly(e); });
 
+  // Feedback: anyone signed in can send; only accounts listed in admins/{uid} can read (see firestore.rules).
+  const feedback = {
+    send: (d) => F.addDoc(F.collection(db, 'feedback'), { ...d, uid, email: d.email ? (auth.currentUser?.email || '') : '', at: F.serverTimestamp(), status: 'new' }),
+    watch: (cb) => F.onSnapshot(F.query(F.collection(db, 'feedback'), F.orderBy('at', 'desc'), F.limit(200)),
+      (qs) => cb(qs.docs.map((d) => ({ ...d.data(), id: d.id, at: ms(d.data().at) }))), (e) => cb(null, e)),
+    setStatus: (id, status) => F.updateDoc(F.doc(db, 'feedback', id), { status }),
+    remove: (id) => F.deleteDoc(F.doc(db, 'feedback', id)),
+    async isAdmin() { try { return uid ? (await F.getDoc(F.doc(db, 'admins', uid))).exists() : false; } catch { return false; } },
+  };
+
   return {
     mode: 'cloud',
     social,
+    feedback,
     auth: {
       google: () => wrap(A.signInWithPopup(auth, new A.GoogleAuthProvider())),
       signIn: (email, pw) => wrap(A.signInWithEmailAndPassword(auth, email, pw)),

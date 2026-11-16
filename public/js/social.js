@@ -200,6 +200,9 @@ function openBell() {
   });
 }
 
+/** Adds an item to the bell and shows a device notification (used by the feedback inbox). */
+export function bellEvent(e, title, body) { addEvent(e); renderBell(); notify(title, body, { tag: 'bell', url: '/#settings' }); }
+
 /* ================= Watching friends & inbox ================= */
 let primed = false, kudosPrimed = false, postsWereReady = false;
 function onSocial(next) {

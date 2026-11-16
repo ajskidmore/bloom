@@ -7,6 +7,8 @@ service cloud.firestore {
     function isFriendOf(uid) { return signedIn() && exists(/databases/$(database)/documents/profiles/$(uid)/friends/$(request.auth.uid)); }
     function requestExists(from, to) { return exists(/databases/$(database)/documents/requests/$(from + '_' + to)); }
     function shortStr(v, n) { return v is string && v.size() <= n; }
+    // The developer's account(s): listed in admins/{uid}, which only the project owner can write (console or admin tools).
+    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
 
     // Each signed-in user can only read and write their own data.
     match /users/{uid} {
@@ -83,6 +85,31 @@ service cloud.firestore {
           && shortStr(request.resource.data.fromPhoto, 500)
           && request.resource.data.at == request.time;
       }
+    }
+
+    // Lets the app check whether the signed-in user is an admin. Nobody can write here from the app.
+    match /admins/{uid} {
+      allow get: if isOwner(uid);
+    }
+
+    // Feedback from Settings. Anyone signed in can send it; only the developer can read or manage it.
+    match /feedback/{id} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'name', 'kind', 'text', 'at', 'status', 'ua', 'page', 'version'])
+        && request.resource.data.uid == request.auth.uid
+        && (request.resource.data.email == '' || request.resource.data.email == request.auth.token.get('email', ''))
+        && request.resource.data.kind in ['bug', 'idea', 'other']
+        && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
+        && request.resource.data.at == request.time
+        && request.resource.data.status == 'new'
+        && shortStr(request.resource.data.name, 40)
+        && shortStr(request.resource.data.ua, 300)
+        && shortStr(request.resource.data.page, 40)
+        && shortStr(request.resource.data.version, 20);
+      allow read, delete: if isAdmin();
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['new', 'done'];
     }
 
     // Friend requests, stored as {from}_{to}. Only the two people involved can see or remove one.

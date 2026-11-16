@@ -12,6 +12,32 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap" />
+  <script>
+    /* Start-up safety net: if Bloom can't start (an error, or an old cached page on a phone),
+       show what happened and a Reload button instead of a blank screen. */
+    (function () {
+      var shown = false, errs = [];
+      function fresh() {
+        var u = new URL(location.href);
+        u.searchParams.set('r', Date.now().toString(36));
+        location.replace(u.toString());
+      }
+      function show(msg) {
+        if (shown) return; shown = true;
+        var box = document.createElement('div');
+        box.className = 'boot-fail';
+        box.innerHTML = '<h2>Bloom didn’t start</h2><p>Tap Reload to load the latest version. If this keeps happening, send a screenshot of this screen.</p><pre></pre><button type="button" class="btn primary big">Reload</button>';
+        box.querySelector('pre').textContent = msg || 'No error was reported.';
+        box.querySelector('button').onclick = fresh;
+        (document.body || document.documentElement).appendChild(box);
+      }
+      window.__bloomBootFail = show;
+      window.__bloomReloadFresh = fresh;
+      window.addEventListener('error', function (e) { errs.push((e.message || 'Error') + (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : '')); if (!window.__bloomStarted) show(errs.join('\n')); });
+      window.addEventListener('unhandledrejection', function (e) { var r = e.reason; errs.push('Unhandled: ' + (r && (r.message || r.code) || r)); if (!window.__bloomStarted) show(errs.join('\n')); });
+      setTimeout(function () { if (!window.__bloomStarted) show(errs.join('\n') || 'Bloom took too long to start. Check your connection, then reload.'); }, 20000);
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -77,6 +103,6 @@
     <button id="fab" class="fab" aria-label="Log a meal" title="Log a meal">📷</button>
   </div>
 
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=8"></script>
 </body>
 </html>

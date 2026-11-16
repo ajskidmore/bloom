@@ -484,3 +484,20 @@ a.btn { text-decoration: none; color: inherit; display: inline-flex; align-items
 .btn.kudos.on { background: var(--warn-soft); color: #9a6412; }
 .kudos-count { font-weight: 900; color: var(--muted); }
 @media (max-width: 760px) { .post-stats { gap: 16px; } .post-stats b { font-size: 1.05rem; } }
+
+/* ---------- Start-up / render errors ---------- */
+.boot-fail { position: fixed; inset: 0; z-index: 2000; background: var(--bg, #f6f1e7); color: var(--ink, #2c3a2e); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; font-family: Nunito, system-ui, sans-serif; }
+.boot-fail h2 { margin: 0; font-weight: 900; }
+.boot-fail p { margin: 0; max-width: 420px; color: var(--muted, #7d8577); }
+.boot-fail pre, .render-fail pre { white-space: pre-wrap; word-break: break-word; max-width: min(560px, 100%); max-height: 40vh; overflow: auto; background: #fff; border: 1px solid var(--line, #e9e1d2); border-radius: 12px; padding: 10px 12px; font-size: .8rem; text-align: left; margin: 0; }
+.render-fail { padding: 14px 16px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; border-color: var(--bad-soft); }
+
+/* ---------- Feedback ---------- */
+.sbox textarea { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font: inherit; font-weight: 600; background: #fff; width: 100%; resize: vertical; }
+[data-fb-kind], [data-fb-filter] { align-self: flex-start; }
+.fb-item { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.fb-item.done { opacity: .6; }
+.fb-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .9rem; }
+.fb-meta a { color: var(--green); font-weight: 700; word-break: break-all; }
+.fb-text { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.fb-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

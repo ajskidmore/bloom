@@ -3,6 +3,7 @@ import { S, store, emit, goals, units, latestWeight, computeTargets, ACTIVITY, G
 import { $, esc, num, round, uid, dayKey, cmToIn, inToCm, toast } from './util.js';
 import { toDisplayWeight, fromDisplayWeight, weightUnit } from './health.js';
 import { notifSettingsHTML } from './social.js';
+import { feedbackHTML } from './feedback.js';
 
 export function renderSettings() {
   const p = S.main.profile || {}, g = goals(), metric = units() === 'metric';
@@ -85,6 +86,8 @@ export function renderSettings() {
         <button class="btn ghost danger" data-wipe>Delete all my data</button>
       </div>
     </section>
+
+    ${feedbackHTML()}
 
     <section class="card sbox">
       <h3>Account</h3>
