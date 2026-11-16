@@ -9,12 +9,14 @@ import { renderFood, bindFood, openMealModal } from './food.js';
 import { renderHealth, bindHealth } from './health.js';
 import { renderTrends, bindTrends } from './trends.js';
 import { renderSettings, bindSettings } from './settings.js';
+import { renderFriends, initSocial, renderBell } from './social.js';
 
 const TABS = {
   today: { el: '#tab-today', render: renderToday, dated: true },
   food: { el: '#tab-food', render: renderFood, dated: true },
   health: { el: '#tab-health', render: renderHealth, dated: true },
   trends: { el: '#tab-trends', render: renderTrends },
+  friends: { el: '#tab-friends', render: renderFriends },
   settings: { el: '#tab-settings', render: renderSettings },
 };
 
@@ -150,10 +152,11 @@ async function boot() {
     showBanner('Preview / local mode: data stays in this browser. Deploy to Firebase for accounts and sync.');
   }
   setStore(s);
-  bindToday(); bindFood(); bindHealth(); bindTrends(); bindSettings();
+  bindToday(); bindFood(); bindHealth(); bindTrends(); bindSettings(); initSocial();
   onChange((what) => {
     if (what.startsWith?.('error:')) { toast(what.slice(6)); return; }
     if (what === 'user') { onUser(); return; }
+    if (what === 'social') { if (S.user && S.tab === 'friends') renderCurrent(); return; }
     if (S.user) renderCurrent();
   });
   $('#fab').onclick = () => openMealModal({ date: dayKey(S.viewDate) });

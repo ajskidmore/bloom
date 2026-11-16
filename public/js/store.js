@@ -47,6 +47,7 @@ export function localStore() {
       S.days = read(LK.days) || {};
       S.meals = read(LK.meals) || {};
       S.user = { local: true, displayName: 'Local' };
+      S.mainReady = true;
       emit('user');
       emit('all');
     },
@@ -80,6 +81,11 @@ export async function firebaseStore(config) {
   const app = appMod.initializeApp(config);
   const auth = A.getAuth(app);
   const db = F.getFirestore(app);
+  // Local testing against the Firebase emulators: http://localhost:5050/?emu
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && new URLSearchParams(location.search).has('emu')) {
+    A.connectAuthEmulator(auth, `http://${location.hostname}:9099`, { disableWarnings: true });
+    F.connectFirestoreEmulator(db, location.hostname, 8080);
+  }
   try { F.enableIndexedDbPersistence?.(db).catch(() => {}); } catch {}
 
   let uid = null, unsubs = [];
@@ -90,12 +96,13 @@ export async function firebaseStore(config) {
 
   function listen() {
     unsubs.forEach((u) => u()); unsubs = [];
-    if (!uid) return;
+    if (!uid) { startSocial(); return; }
     unsubs.push(F.onSnapshot(userDoc(), (snap) => {
       if (!snap.exists()) {
         F.setDoc(userDoc(), { createdAt: F.serverTimestamp(), email: auth.currentUser?.email || null }, { merge: true }).catch(fail);
         setMain(null);
       } else setMain(snap.data());
+      S.mainReady = true;
       emit('all');
     }, fail));
     unsubs.push(F.onSnapshot(sub('days'), (qs) => {
@@ -109,7 +116,121 @@ export async function firebaseStore(config) {
       qs.forEach((d) => { meals[d.id] = { ...d.data(), id: d.id }; });
       S.meals = meals; emit('all');
     }, fail));
+    startSocial();
   }
+
+  /* ---------- Friends (profiles, codes, requests, inbox) ----------
+     profiles/{uid}                 progress snapshot friends can read
+     profiles/{uid}/friends/{fid}   who can read it
+     profiles/{uid}/inbox/{id}      cheers / "request accepted" from friends
+     codes/{CODE}                   friend code -> uid
+     requests/{from}_{to}           pending friend requests                         */
+  let socialFn = null;
+  const soc = { incoming: [], outgoing: [], friends: {}, friendIds: [], inbox: [], code: null, ready: false };
+  const pushSocial = () => socialFn?.({ ...soc });
+  const ms = (ts) => ts?.toMillis?.() ?? Date.now();
+  const profDoc = (id) => F.doc(db, 'profiles', id);
+  const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const newCode = () => Array.from(crypto.getRandomValues(new Uint32Array(6)), (n) => CODE_CHARS[n % CODE_CHARS.length]).join('');
+  const cleanCode = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  async function ensureCode() {
+    const me = uid;
+    try {
+      const snap = await F.getDoc(profDoc(me));
+      if (snap.exists() && snap.data().code) return snap.data().code;
+      for (let i = 0; i < 6; i++) {
+        const code = newCode();
+        try {
+          await F.setDoc(F.doc(db, 'codes', code), { uid: me });
+          await F.setDoc(profDoc(me), { code }, { merge: true });
+          return code;
+        } catch { /* taken: try another */ }
+      }
+    } catch (e) { console.warn('friend code', e); }
+    return null;
+  }
+
+  function startSocial() {
+    Object.assign(soc, { incoming: [], outgoing: [], friends: {}, friendIds: [], inbox: [], code: null, ready: false });
+    pushSocial();
+    if (!uid) return;
+    const me = uid;
+    ensureCode().then((c) => { if (uid === me) { soc.code = c; pushSocial(); } });
+    const reqs = F.collection(db, 'requests');
+    const toReq = (d) => ({ id: d.id, ...d.data(), at: ms(d.data().at) });
+    unsubs.push(F.onSnapshot(F.query(reqs, F.where('to', '==', me)), (qs) => { soc.incoming = qs.docs.map(toReq); soc.ready = true; pushSocial(); }, fail));
+    unsubs.push(F.onSnapshot(F.query(reqs, F.where('from', '==', me)), (qs) => { soc.outgoing = qs.docs.map(toReq); pushSocial(); }, fail));
+    unsubs.push(F.onSnapshot(F.collection(db, 'profiles', me, 'inbox'), (qs) => {
+      soc.inbox = qs.docs.map((d) => ({ id: d.id, ...d.data(), at: ms(d.data().at) })).sort((a, b) => b.at - a.at);
+      pushSocial();
+    }, fail));
+    const friendSubs = {};
+    unsubs.push(F.onSnapshot(F.collection(db, 'profiles', me, 'friends'), (qs) => {
+      const ids = qs.docs.map((d) => d.id);
+      soc.friendIds = ids;
+      Object.keys(friendSubs).forEach((id) => { if (!ids.includes(id)) { friendSubs[id](); delete friendSubs[id]; delete soc.friends[id]; } });
+      // Right after accepting, the friendship may not have reached the server yet, so a refused read is retried.
+      const watch = (id, attempt = 0) => {
+        friendSubs[id] = F.onSnapshot(profDoc(id),
+          (s) => { soc.friends[id] = s.exists() ? { ...s.data(), uid: id } : { uid: id }; pushSocial(); },
+          () => {
+            if (attempt < 5) {
+              friendSubs[id] = () => clearTimeout(timer);
+              const timer = setTimeout(() => { if (soc.friendIds.includes(id) && uid === me) watch(id, attempt + 1); }, 1000 * (attempt + 1));
+              return;
+            }
+            soc.friends[id] = { uid: id, hidden: true }; pushSocial();
+          });
+      };
+      ids.forEach((id) => {
+        if (friendSubs[id]) return;
+        soc.friends[id] = soc.friends[id] || null;
+        watch(id);
+      });
+      pushSocial();
+    }, fail));
+    unsubs.push(() => { Object.values(friendSubs).forEach((u) => u()); });
+  }
+
+  async function acceptReq(r, myName, myPhoto) {
+    const b = F.writeBatch(db);
+    b.set(F.doc(db, 'profiles', uid, 'friends', r.from), { since: F.serverTimestamp() });
+    b.set(F.doc(db, 'profiles', r.from, 'friends', uid), { since: F.serverTimestamp() });
+    b.delete(F.doc(db, 'requests', r.id));
+    await b.commit();
+    await F.addDoc(F.collection(db, 'profiles', r.from, 'inbox'), { type: 'accepted', from: uid, fromName: myName, fromPhoto: myPhoto || '', at: F.serverTimestamp() }).catch(() => {});
+  }
+
+  const social = {
+    subscribe(fn) { socialFn = fn; pushSocial(); },
+    publish: (snap) => uid && F.setDoc(profDoc(uid), { ...snap, updatedAt: F.serverTimestamp() }, { merge: true }).catch((e) => console.warn('profile', e)),
+    async sendRequest(rawCode, myName, myPhoto) {
+      const code = cleanCode(rawCode);
+      if (code.length !== 6) throw new Error('Friend codes have 6 letters and numbers.');
+      if (code === soc.code) throw new Error("That's your own code.");
+      const c = await F.getDoc(F.doc(db, 'codes', code));
+      const to = c.exists() ? c.data().uid : null;
+      if (!to) throw new Error('No one has that code. Check it and try again.');
+      if (to === uid) throw new Error("That's your own code.");
+      if (soc.friendIds.includes(to)) throw new Error("You're already friends.");
+      if (soc.outgoing.some((r) => r.to === to)) throw new Error('You already sent them a request.');
+      const back = await F.getDoc(F.doc(db, 'requests', `${to}_${uid}`));
+      if (back.exists()) { await acceptReq({ id: back.id, ...back.data() }, myName, myPhoto); return 'accepted'; }
+      await F.setDoc(F.doc(db, 'requests', `${uid}_${to}`), { from: uid, to, fromName: myName, fromPhoto: myPhoto || '', toCode: code, at: F.serverTimestamp() });
+      return 'sent';
+    },
+    accept: (r, myName, myPhoto) => acceptReq(r, myName, myPhoto),
+    dropRequest: (r) => F.deleteDoc(F.doc(db, 'requests', r.id)),
+    async removeFriend(fid) {
+      const b = F.writeBatch(db);
+      b.delete(F.doc(db, 'profiles', uid, 'friends', fid));
+      b.delete(F.doc(db, 'profiles', fid, 'friends', uid));
+      await b.commit();
+    },
+    cheer: (fid, myName, myPhoto) => F.addDoc(F.collection(db, 'profiles', fid, 'inbox'), { type: 'cheer', from: uid, fromName: myName, fromPhoto: myPhoto || '', at: F.serverTimestamp() }),
+    clearInbox: (ids) => Promise.all(ids.map((id) => F.deleteDoc(F.doc(db, 'profiles', uid, 'inbox', id)).catch(() => {}))),
+  };
 
   const friendly = (e) => {
     const code = e?.code || '';
@@ -130,6 +251,7 @@ export async function firebaseStore(config) {
 
   return {
     mode: 'cloud',
+    social,
     auth: {
       google: () => wrap(A.signInWithPopup(auth, new A.GoogleAuthProvider())),
       signIn: (email, pw) => wrap(A.signInWithEmailAndPassword(auth, email, pw)),
@@ -145,6 +267,7 @@ export async function firebaseStore(config) {
     start() {
       A.onAuthStateChanged(auth, (user) => {
         uid = user?.uid || null;
+        S.mainReady = false;
         S.user = user || null;
         if (!user) { setMain(null); S.days = {}; S.meals = {}; }
         emit('user');

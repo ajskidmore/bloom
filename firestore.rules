@@ -1,7 +1,12 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isOwner(uid) { return request.auth != null && request.auth.uid == uid; }
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    // `uid` has accepted the signed-in user as a friend.
+    function isFriendOf(uid) { return signedIn() && exists(/databases/$(database)/documents/profiles/$(uid)/friends/$(request.auth.uid)); }
+    function requestExists(from, to) { return exists(/databases/$(database)/documents/requests/$(from + '_' + to)); }
+    function shortStr(v, n) { return v is string && v.size() <= n; }
 
     // Each signed-in user can only read and write their own data.
     match /users/{uid} {
@@ -17,6 +22,64 @@ service cloud.firestore {
           && request.resource.data.data is string
           && request.resource.data.data.size() < 900000;
       }
+    }
+
+    // ---------- Friends ----------
+    // Friend codes: anyone signed in can look up one code (not list them). Codes are never reassigned.
+    match /codes/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn() && code.matches('^[A-Z0-9]{6}$')
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid;
+    }
+
+    // Progress snapshot: readable by the owner and the owner's friends only. No food, weight, photos or journal.
+    match /profiles/{uid} {
+      allow read: if isOwner(uid) || isFriendOf(uid);
+      allow write: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['name', 'photo', 'code', 'flower', 'flowerName', 'day', 'done', 'total', 'streak', 'finished', 'updatedAt'])
+        && (!('name' in request.resource.data) || shortStr(request.resource.data.name, 40))
+        && (!('photo' in request.resource.data) || shortStr(request.resource.data.photo, 500))
+        && (!('flowerName' in request.resource.data) || shortStr(request.resource.data.flowerName, 20))
+        && (!('finished' in request.resource.data) || (request.resource.data.finished is list && request.resource.data.finished.size() <= 20));
+
+      // Friend list. Written by both people when a request is accepted; either side can end it.
+      match /friends/{fid} {
+        allow read: if isOwner(uid);
+        allow create: if request.resource.data.keys().hasOnly(['since']) && (
+          (isOwner(uid) && requestExists(fid, uid))      // I'm accepting their request
+          || (isOwner(fid) && requestExists(uid, fid))   // they asked me; I'm accepting and adding myself to their list
+        );
+        allow delete: if isOwner(uid) || isOwner(fid);
+      }
+
+      // Cheers and "request accepted" notes, sent only by friends.
+      match /inbox/{id} {
+        allow read, delete: if isOwner(uid);
+        allow create: if isFriendOf(uid)
+          && request.resource.data.keys().hasOnly(['type', 'from', 'fromName', 'fromPhoto', 'at'])
+          && request.resource.data.type in ['cheer', 'accepted']
+          && request.resource.data.from == request.auth.uid
+          && shortStr(request.resource.data.fromName, 40)
+          && shortStr(request.resource.data.fromPhoto, 500)
+          && request.resource.data.at == request.time;
+      }
+    }
+
+    // Friend requests, stored as {from}_{to}. Only the two people involved can see or remove one.
+    match /requests/{rid} {
+      allow get, delete: if signedIn() && (rid.matches(request.auth.uid + '_.+') || rid.matches('.+_' + request.auth.uid));
+      allow list: if signedIn() && (resource.data.to == request.auth.uid || resource.data.from == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['from', 'to', 'fromName', 'fromPhoto', 'toCode', 'at'])
+        && request.resource.data.from == request.auth.uid
+        && request.resource.data.to != request.auth.uid
+        && rid == request.auth.uid + '_' + request.resource.data.to
+        && shortStr(request.resource.data.fromName, 40)
+        && shortStr(request.resource.data.fromPhoto, 500)
+        && shortStr(request.resource.data.toCode, 6)
+        && request.resource.data.at == request.time
+        && !exists(/databases/$(database)/documents/profiles/$(request.resource.data.to)/friends/$(request.auth.uid));
     }
   }
 }

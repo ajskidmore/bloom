@@ -2,6 +2,7 @@
 import { S, store, emit, goals, units, latestWeight, computeTargets, ACTIVITY, GOAL_OPTS, DEFAULT_GOALS } from './state.js';
 import { $, esc, num, round, uid, dayKey, cmToIn, inToCm, toast } from './util.js';
 import { toDisplayWeight, fromDisplayWeight, weightUnit } from './health.js';
+import { notifSettingsHTML } from './social.js';
 
 export function renderSettings() {
   const p = S.main.profile || {}, g = goals(), metric = units() === 'metric';
@@ -56,6 +57,8 @@ export function renderSettings() {
       <label class="pref"><span>Flower name</span><input data-flower value="${esc(S.main.settings.flowerName || 'Bloom')}" maxlength="20" class="w-160"></label>
       <label class="pref check-row"><input type="checkbox" data-addex ${S.main.settings.addExercise ? 'checked' : ''}><span>Add workout calories back to my daily calorie budget</span></label>
     </section>
+
+    ${notifSettingsHTML()}
 
     <section class="card sbox">
       <h3>Favorite foods & meals</h3>

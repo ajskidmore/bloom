@@ -16,6 +16,12 @@ and wilts when you don't. Plain HTML/CSS/JS ES modules, no build step. Firebase 
 - **Health**: weight (with BMI and weekly change), sleep hours and quality, water, mood and energy, steps,
   workouts (MET-based calorie estimate, editable), body fat, waist, resting heart rate, and a journal.
 - **Trends**: 7, 30 or 90 days of stat tiles and charts for calories, weight, protein, sleep, steps, water, mood and energy, plus a habit success table.
+- **Friends**: everyone gets a friend code and an invite link. Friends see your flower, how many habits you've done today,
+  your streak and (optionally) which habits you finished. Food, weight, photos, sleep and the journal are never shared.
+  Send a friend a 💧 cheer; either person can remove the friendship.
+- **Notifications**: a bell for friend requests, cheers, and friends finishing their day or hitting streaks, plus an optional
+  daily reminder when habits are still left. Device notifications work while Bloom is open or running in the background;
+  the free Spark plan has no server, so nothing can reach a fully closed app. On iPhone, add Bloom to the Home Screen first.
 - **Settings**: sex, age, height, weight, activity and goal give suggested calories and macros (Mifflin–St Jeor). All targets are editable.
   Also: units (lb/kg), favorite foods, JSON backup export and import, and delete-all-data.
 - Works as a home-screen app on phones (manifest included). Past days can be edited with the date arrows.
@@ -38,10 +44,15 @@ If you use a custom domain, add it under **Authentication → Settings → Autho
 
 ## Local testing
 - `firebase emulators:start` or `firebase serve`, or any static server (`npx serve public`).
+- Emulators: `firebase emulators:start --only auth,firestore,hosting --project demo-bloom`, then open
+  `http://localhost:5050/?emu`. Use `127.0.0.1:5050/?emu` in a second tab to sign in as a second user.
 - Without Firebase config, the app runs in **local mode** (no login; data saved in the browser). `?local` forces local mode.
 
 ## Data layout
 ```
+profiles/{uid}              progress snapshot friends can read (name, flower, done/total today, streak, finished)
+profiles/{uid}/friends/{id} who may read it · profiles/{uid}/inbox/{id} cheers and "request accepted" notes
+codes/{CODE}                friend code -> uid · requests/{from}_{to} pending friend requests
 users/{uid}                 tasks, logs, settings, profile, goals, customFoods
 users/{uid}/days/{date}     weight(kg), sleep, sleepQ, water, mood, energy, steps, workouts[], notes, bodyFat, waistCm, rhr
 users/{uid}/meals/{id}      date, time, type, description, portion, items[{name, qty, unit, kcal, p, c, f, fiber}], hasPhoto
@@ -51,6 +62,6 @@ users/{uid}/photos/{mealId} { data: <jpeg data URL> }
 ## Code map (`public/js`)
 `app.js` shell, auth screens and routing · `state.js` state, selectors and the goal calculator · `store.js` local and Firebase backends ·
 `habits.js` Today tab and scoring · `food.js` Food tab and meal logger · `foodDb.js` food list · `foodParse.js` description parser ·
-`health.js` Health tab and workouts · `trends.js` charts · `settings.js` · `flower.js` mascot · `util.js`.
+`health.js` Health tab and workouts · `trends.js` charts · `social.js` friends, bell and reminders · `settings.js` · `flower.js` mascot · `util.js`.
 
 Estimates are approximate and not medical advice.
