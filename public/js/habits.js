@@ -6,6 +6,7 @@ import {
 } from './util.js';
 import { flowerSVG, stageOf, STAGE_LABEL, MESSAGES, pick, mix3 } from './flower.js';
 import { openMealModal } from './food.js';
+import { icon } from './icons.js';
 import { openWorkoutModal, weightInputValue, saveWeightFromInput, weightUnit } from './health.js';
 
 /* ================= Values & scoring ================= */
@@ -119,7 +120,7 @@ export function updateGarden(h) {
   const fill = $('#meterFill');
   if (!fill) return;
   fill.style.width = pct + '%';
-  fill.style.background = mix3(['#d9a25b', '#f08aa8', '#3f9a5a'], h);
+  fill.style.background = h >= 0.55 ? 'var(--brand)' : h >= 0.3 ? 'var(--warn)' : 'var(--bad)';
   $('#pct').textContent = pct + '% watered';
   const st = S.main.tasks.length ? stageOf(h) : 'happy';
   $('#stage').textContent = STAGE_LABEL[st];
@@ -147,61 +148,65 @@ function historyDots(t, ref) {
   const created = t.createdAt || 0;
   let cur = periodStart(t.period, ref);
   const dots = [];
+  let ok = 0, miss = 0;
   for (let i = 0; i < 6; i++) {
     const prev = prevPeriodStart(t.period, cur);
     const label = t.period === 'day' ? prev.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
       : t.period === 'week' ? `Week of ${fmtShort(prev)}` : prev.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     if (cur.getTime() <= created) dots.unshift(`<i class="dot" title="${label}: not tracked yet"></i>`);
     else {
-      const v = valueFor(t, prev), ok = passed(t, v);
-      dots.unshift(`<i class="dot ${ok ? 'ok' : 'miss'}" title="${label}: ${t.type === 'check' ? (v ? 'done' : 'missed') : fmtAmt(t, v)}"></i>`);
+      const v = valueFor(t, prev), pass = passed(t, v);
+      if (pass) ok++; else miss++;
+      dots.unshift(`<i class="dot ${pass ? 'ok' : 'miss'}" title="${label}: ${t.type === 'check' ? (v ? 'done' : 'missed') : fmtAmt(t, v)}"></i>`);
     }
     cur = prev;
   }
   const v = valueFor(t, ref);
   dots.push(`<i class="dot now ${t.type !== 'under' && passed(t, v) ? 'ok' : ''}" title="Current period"></i>`);
-  return dots.join('');
+  const unit = { day: 'days', week: 'weeks', month: 'months' }[t.period];
+  const summary = ok + miss ? `Last ${ok + miss} ${unit}: ${ok} passed, ${miss} missed` : 'No history yet';
+  return `<span class="sr-only">${summary}</span><span class="dots" aria-hidden="true">${dots.join('')}</span>`;
 }
 
 function controlsFor(t, v) {
   if (t.source) {
     const src = SOURCES[t.source];
     switch (t.source) {
-      case 'water': return `<div class="counter"><button data-action="src-dec" aria-label="One less glass">−</button><span>${num(S.days[dayKey(S.viewDate)]?.water || 0)}</span><button data-action="src-inc" aria-label="One more glass">+</button></div>`;
-      case 'sleep': case 'steps': return `<div class="amount"><input type="number" step="any" inputmode="decimal" placeholder="${src.unit}" aria-label="${src.label}"><button class="add" data-action="src-set">Set</button></div>`;
-      case 'weighins': return `<div class="amount"><input type="number" step="0.1" inputmode="decimal" placeholder="${weightUnit()}" aria-label="Weight"><button class="add" data-action="src-weight">Save</button></div>`;
-      case 'workouts': case 'activeMin': return `<button class="btn small" data-action="src-workout">+ Log workout</button>`;
-      default: return `<button class="btn small" data-action="src-meal">+ Log meal</button>`;
+      case 'water': return `<div class="counter"><button data-action="src-dec" aria-label="One less glass">${icon('minus', { size: 18 })}</button><span aria-live="polite">${num(S.days[dayKey(S.viewDate)]?.water || 0)}<span class="sr-only"> glasses</span></span><button data-action="src-inc" aria-label="One more glass">${icon('plus', { size: 18 })}</button></div>`;
+      case 'sleep': case 'steps': return `<div class="amount"><input type="number" step="any" inputmode="decimal" placeholder="${src.unit}" aria-label="${src.label}"><button class="add" data-action="src-set">Set<span class="sr-only"> ${src.label.toLowerCase()}</span></button></div>`;
+      case 'weighins': return `<div class="amount"><input type="number" step="0.1" inputmode="decimal" placeholder="${weightUnit()}" aria-label="Weight"><button class="add" data-action="src-weight">Save<span class="sr-only"> weight</span></button></div>`;
+      case 'workouts': case 'activeMin': return `<button class="btn small" data-action="src-workout">${icon('plus', { size: 16 })}Log workout</button>`;
+      default: return `<button class="btn small" data-action="src-meal">${icon('plus', { size: 16 })}Log meal</button>`;
     }
   }
   if (t.type === 'check') return '';
   return t.unit
-    ? `<div class="amount"><input type="number" step="any" inputmode="decimal" placeholder="${t.unit === '$' ? '$' : esc(t.unit)}" aria-label="Amount"><button class="add" data-action="add">Add</button><button data-action="set" title="Replace the total">Set</button></div>`
-    : `<div class="counter"><button data-action="dec" aria-label="Minus one">−</button><span>${num(v)}</span><button data-action="inc" aria-label="Plus one">+</button></div>`;
+    ? `<div class="amount"><input type="number" step="any" inputmode="decimal" placeholder="${t.unit === '$' ? '$' : esc(t.unit)}" aria-label="Amount for ${esc(t.name)}"><button class="add" data-action="add">Add</button><button data-action="set" aria-label="Set total (replaces it)">Set</button></div>`
+    : `<div class="counter"><button data-action="dec" aria-label="${esc(t.name)}: minus one">${icon('minus', { size: 18 })}</button><span aria-live="polite">${num(v)}</span><button data-action="inc" aria-label="${esc(t.name)}: plus one">${icon('plus', { size: 18 })}</button></div>`;
 }
 
 function taskHTML(t, ref) {
   const v = valueFor(t, ref);
   const [label, cls, cardCls] = statusOf(t, v, ref);
-  const checkBtn = t.type === 'check' && !t.source ? `<button class="check ${v >= 1 ? 'on' : ''}" data-action="toggle" aria-label="Mark ${esc(t.name)} done">✓</button>` : '';
+  const checkBtn = t.type === 'check' && !t.source ? `<button class="check ${v >= 1 ? 'on' : ''}" data-action="toggle" aria-pressed="${v >= 1}" aria-label="${esc(t.name)} done">${icon('check', { size: 22, stroke: 3 })}</button>` : '';
   let progress = '';
   if (t.type !== 'check') {
     const pct = clamp((v / tgt(t)) * 100, 0, 100);
     const pcls = t.type === 'under' ? (v >= tgt(t) ? 'bad' : cls === 'warn' ? 'warn' : '') : '';
     const amt = t.type === 'atLeast' ? `${fmtAmt(t, v)} / ${fmtAmt(t, tgt(t))}` : `${fmtAmt(t, v)} of ${fmtAmt(t, tgt(t))}`;
-    progress = `<div class="progress-row"><div class="progress ${pcls}"><div style="width:${pct}%"></div></div><span class="amt">${amt}</span></div>`;
+    progress = `<div class="progress-row"><div class="progress ${pcls}" aria-hidden="true"><div style="width:${pct}%"></div></div><span class="amt">${amt}</span></div>`;
   }
-  const auto = t.source ? `<span class="auto-tag" title="Filled in automatically from your ${SOURCES[t.source].tab === 'food' ? 'food log' : 'health log'}">⚡ auto</span>` : '';
+  const auto = t.source ? `<span class="auto-tag" title="Filled in automatically from your ${SOURCES[t.source].tab === 'food' ? 'food log' : 'health log'}">${icon('zap', { size: 12 })} auto<span class="sr-only">-tracked</span></span>` : '';
   return `
   <article class="task card ${cardCls}" data-id="${t.id}">
     <div class="task-main">
-      <div class="task-emoji">${esc(t.emoji || '🌱')}</div>
+      <div class="task-emoji" aria-hidden="true">${esc(t.emoji || '🌱')}</div>
       <div class="task-text">
-        <div class="task-name">${esc(t.name)}</div>
+        <h4 class="task-name">${esc(t.name)}</h4>
         <div class="task-desc">${esc(describeTask(t))} ${auto} <span class="status ${cls}">${label}</span></div>
       </div>
       ${checkBtn}
-      <button class="icon-btn" data-action="edit" aria-label="Edit ${esc(t.name)}">✎</button>
+      <button class="icon-btn" data-action="edit" aria-label="Edit ${esc(t.name)}">${icon('pencil', { size: 18 })}</button>
     </div>
     ${progress}
     <div class="task-foot"><div class="history">${historyDots(t, ref)}</div><div class="controls">${controlsFor(t, v)}</div></div>

@@ -10,6 +10,12 @@ import { $, esc, addDays, startOfDay, startOfWeek, todayKey, dayKey, fromKey, fm
 import { flowerSVG, stageOf, STAGE_LABEL } from './flower.js';
 import { flowerHealth, passed, valueFor } from './habits.js';
 import { WORKOUTS } from './health.js';
+import { icon, WORKOUT_ICON } from './icons.js';
+
+// Bell items and posts store a small emoji as their "kind"; draw the matching line icon instead.
+const EMOJI_ICON = { '👋': 'user-plus', '💧': 'droplet', '🤝': 'users', '👏': 'thumbs-up', '🌸': 'flower-2', '🔥': 'flame', '⏰': 'clock', '📬': 'mail-open' };
+const kindIcon = (e, size = 18) => icon(EMOJI_ICON[e] || 'bell', { size });
+const postIcon = (p, size = 22) => icon(p.kind === 'workout' ? WORKOUT_ICON[p.workout] || 'activity' : p.kind === 'streak' ? 'flame' : 'flower-2', { size });
 
 export const SOC = { incoming: [], outgoing: [], friends: {}, friendIds: [], inbox: [], code: null, ready: false, posts: {}, myPosts: [], myPostsReady: false };
 const social = () => (store?.mode === 'cloud' && S.user && !S.user.local ? store.social : null);
@@ -83,9 +89,14 @@ function wantedPosts(snap) {
   if (MILESTONES.includes(snap.streak)) out[`streak-${snap.streak}-${snap.day}`] = { kind: 'streak', day: snap.day, at: Date.now(), title: `${snap.streak}-day streak`, emoji: '🔥', streak: snap.streak };
   return out;
 }
-const syncPosts = debounce(() => {
+// Runs once, shortly after the first change. A plain debounce could be put off for many seconds by the
+// stream of small updates that follows a save, so a post might not appear before the app was closed.
+let syncTimer = null;
+const syncPosts = () => { if (!syncTimer) syncTimer = setTimeout(() => { syncTimer = null; runSync(); }, 1500); };
+function runSync() {
   const so = social();
-  if (!so || !S.mainReady || !SOC.myPostsReady) return;
+  // Wait until habits, day logs and existing posts have all loaded, or a fresh device could delete posts.
+  if (!so || !S.mainReady || !S.daysReady || !SOC.myPostsReady) return;
   const snap = snapshot(), want = wantedPosts(snap), hidden = hiddenPosts();
   const have = Object.fromEntries(SOC.myPosts.map((p) => [p.id, p]));
   const windowStart = dayKey(addDays(startOfDay(new Date()), -(SYNC_DAYS - 1)));
@@ -102,7 +113,7 @@ const syncPosts = debounce(() => {
     if (p.kind === 'workout' && p.day >= windowStart) so.deletePost(p.id);
     if (p.kind === 'allDone' && p.day === snap.day) so.deletePost(p.id);
   });
-}, 2000);
+}
 
 /* ================= Device notifications ================= */
 export const notifSupported = () => 'Notification' in window && 'serviceWorker' in navigator;
@@ -176,12 +187,12 @@ const avatar = (photo, name, cls = '') => photo
 let bellDlg = null;
 function bellHTML() {
   const seen = LS.get('seen', 0), items = bellItems();
-  return `<div class="dlg-head"><h2>Notifications</h2><button class="icon-btn" data-close aria-label="Close">✕</button></div>
-  <div class="bell-list">${items.length ? items.map((i) => `
-    <div class="bell-item ${i.at > seen ? 'new' : ''}">
-      <span class="bell-ico">${i.icon}</span>
+  return `<div class="dlg-head"><h2>Notifications</h2><button class="icon-btn" data-close aria-label="Close notifications">${icon('x', { size: 20 })}</button></div>
+  <div class="bell-list" ${items.length ? 'role="list"' : ''}>${items.length ? items.map((i) => `
+    <div class="bell-item ${i.at > seen ? 'new' : ''}" role="listitem">${i.at > seen ? '<span class="sr-only">New: </span>' : ''}
+      <span class="bell-ico">${kindIcon(i.icon)}</span>
       <div class="bell-text"><div>${i.text}</div><small class="muted">${ago(i.at)}</small>
-        ${i.req ? `<div class="btn-row"><button class="btn small primary" data-accept="${esc(i.req.id)}">Accept</button><button class="btn small ghost" data-decline="${esc(i.req.id)}">Decline</button></div>` : ''}</div>
+        ${i.req ? `<div class="btn-row"><button class="btn small primary" data-accept="${esc(i.req.id)}">Accept<span class="sr-only"> ${esc(i.req.fromName || '')}</span></button><button class="btn small ghost" data-decline="${esc(i.req.id)}">Decline<span class="sr-only"> ${esc(i.req.fromName || '')}</span></button></div>` : ''}</div>
     </div>`).join('') : '<p class="muted empty-bell">Nothing yet. Friend requests, cheers and reminders show up here.</p>'}</div>
   <div class="dlg-actions">${SOC.inbox.length || LS.get('events', []).length ? '<button class="btn ghost" data-clear>Clear all</button>' : ''}<span class="spacer"></span><a class="btn" href="#feed" data-close>Open feed</a></div>`;
 }
@@ -285,19 +296,19 @@ function friendCard(p) {
   const pct = active && p.total ? Math.round((p.done / p.total) * 100) : 0;
   const cheered = LS.get('cheered', {})[fid] === today;
   return `<article class="card friend" data-fid="${esc(fid)}">
-    <svg class="friend-flower" viewBox="0 0 200 260" aria-hidden="true">${flowerSVG(h, 0)}</svg>
+    <svg class="friend-flower" viewBox="0 0 200 260" aria-hidden="true" focusable="false">${flowerSVG(h, 0)}</svg>
     <div class="friend-body">
       <div class="friend-top">${avatar(p.photo, p.name, 'sm')}<b>${esc(p.name || 'Friend')}</b>
         <span class="pill ${h >= 0.55 ? '' : 'warn'}">${p.flowerName ? esc(p.flowerName) + ' · ' : ''}${STAGE_LABEL[stageOf(h)]}</span></div>
       ${p.day ? `<div class="friend-stats">
         <span><b>${active ? `${p.done}/${p.total}` : '0/' + (p.total || 0)}</b> today</span>
-        <span>🔥 <b>${p.streak || 0}</b> day streak</span>
+        <span>${icon('flame', { size: 15 })} <b>${p.streak || 0}</b> day streak</span>
         ${!active ? '<span class="muted">Not active yet today</span>' : ''}</div>
         <div class="meter"><div style="width:${pct}%;background:var(--green)"></div></div>
         ${active && p.finished?.length ? `<div class="chips">${p.finished.map((f) => `<span class="chip static">${esc(f)}</span>`).join('')}</div>` : ''}`
         : '<p class="muted small">No progress shared yet.</p>'}
       <div class="btn-row">
-        <button class="btn small ${cheered ? 'ghost' : 'primary'}" data-cheer ${cheered ? 'disabled' : ''}>${cheered ? 'Cheered today ✓' : '💧 Send a cheer'}</button>
+        <button class="btn small ${cheered ? 'ghost' : 'primary'}" data-cheer ${cheered ? 'disabled' : ''}>${cheered ? `${icon('check', { size: 15 })}Cheered today` : `${icon('droplet', { size: 15 })}Send a cheer<span class="sr-only"> to ${esc(p.name || 'friend')}</span>`}</button>
         <span class="spacer"></span><button class="btn small ghost danger" data-unfriend>Remove</button>
       </div>
     </div>
@@ -309,26 +320,26 @@ function friendsHTML() {
   return `
   <div class="friends">
     <section class="card sbox">
-      <h3>Your friend code</h3>
-      <div class="code-row"><span class="friend-code">${fmtCode(SOC.code)}</span>
-        <div class="btn-row"><button class="btn small" data-copy ${SOC.code ? '' : 'disabled'}>Copy code</button><button class="btn small primary" data-invite ${SOC.code ? '' : 'disabled'}>Share invite link</button></div></div>
+      <h2>Your friend code</h2>
+      <div class="code-row"><span class="friend-code" aria-label="Your code: ${esc((SOC.code || '').split('').join(' '))}">${fmtCode(SOC.code)}</span>
+        <div class="btn-row"><button class="btn small" data-copy ${SOC.code ? '' : 'disabled'}>${icon('copy', { size: 15 })}Copy code</button><button class="btn small primary" data-invite ${SOC.code ? '' : 'disabled'}>${icon('share-2', { size: 15 })}Share invite link</button></div></div>
       <p class="muted small">Friends see your flower, how many habits you've done today, your streak${shareNames() ? ', the names of habits you finished' : ''} and the workouts you share to your feed. Food, weight, photos, sleep and your journal stay private.</p>
     </section>
 
     <section class="card sbox">
-      <h3>Add a friend</h3>
+      <h2>Add a friend</h2>
       <form class="row add-friend" data-add novalidate>
-        <input name="code" placeholder="Friend code" autocomplete="off" autocapitalize="characters" maxlength="9" value="${esc(pendingAdd ? fmtCode(pendingAdd) : '')}" aria-label="Friend code">
+        <input name="code" placeholder="Friend code" autocomplete="off" autocapitalize="characters" maxlength="9" value="${esc(pendingAdd ? fmtCode(pendingAdd) : '')}" aria-label="Friend's code">
         <button class="btn primary" type="submit">Send request</button>
       </form>
       ${pendingAdd ? '<p class="small hint-add">You opened an invite link. Tap <b>Send request</b> to add them.</p>' : ''}
     </section>
 
     ${SOC.incoming.length || SOC.outgoing.length ? `<section class="card sbox">
-      <h3>Requests</h3>
+      <h2>Requests</h2>
       ${SOC.incoming.map((r) => `<div class="req">${avatar(r.fromPhoto, r.fromName)}<span class="grow"><b>${esc(r.fromName || 'Someone')}</b> wants to be friends</span>
         <button class="btn small primary" data-accept="${esc(r.id)}">Accept</button><button class="btn small ghost" data-decline="${esc(r.id)}">Decline</button></div>`).join('')}
-      ${SOC.outgoing.map((r) => `<div class="req"><span class="f-avatar">⏳</span><span class="grow">Waiting for <b>${esc(fmtCode(r.toCode))}</b> to accept</span>
+      ${SOC.outgoing.map((r) => `<div class="req"><span class="f-avatar" aria-hidden="true">${icon('clock', { size: 18 })}</span><span class="grow">Waiting for <b>${esc(fmtCode(r.toCode))}</b> to accept</span>
         <button class="btn small ghost" data-cancel="${esc(r.id)}">Cancel</button></div>`).join('')}
     </section>` : ''}
 
@@ -337,7 +348,7 @@ function friendsHTML() {
       : '<div class="card empty"><p>No friends yet. Share your invite link, or enter a friend\'s code above.</p></div>'}
 
     <section class="card sbox">
-      <h3>What you share</h3>
+      <h2>What you share</h2>
       <label class="pref"><span>Your name for friends</span><input data-pubname value="${esc(myName())}" maxlength="40" class="w-160"></label>
       <label class="pref check-row"><input type="checkbox" data-sharenames ${shareNames() ? 'checked' : ''}><span>Show friends the names of habits I finished</span></label>
       <p class="muted small">Workouts post to your feed unless you turn off <b>Share to my feed</b> when logging one. Use <b>Hide</b> on any of your posts to remove it.</p>
@@ -373,18 +384,18 @@ function postCard(p) {
   if (p.kind === 'workout') {
     body = `<div class="post-stats"><div><small>Time</small><b>${fmtDur(p.minutes)}</b></div><div><small>Calories</small><b>${Math.round(p.kcal || 0).toLocaleString()}</b></div><div><small>Effort</small><b>${esc((p.intensity || 'moderate')[0].toUpperCase() + (p.intensity || 'moderate').slice(1))}</b></div></div>`;
   } else if (p.kind === 'allDone') {
-    body = `<div class="post-stats"><div><small>Habits</small><b>${p.done}/${p.total}</b></div><div><small>Flower</small><b>Watered 🌸</b></div></div>`;
+    body = `<div class="post-stats"><div><small>Habits</small><b>${p.done}/${p.total}</b></div><div><small>Flower</small><b>Watered</b></div></div>`;
   } else {
-    body = `<div class="post-stats"><div><small>Streak</small><b>🔥 ${p.streak} days</b></div><div><small>Every habit</small><b>Every day</b></div></div>`;
+    body = `<div class="post-stats"><div><small>Streak</small><b>${p.streak} days</b></div><div><small>Every habit</small><b>Every day</b></div></div>`;
   }
-  return `<article class="card post" data-owner="${esc(p.uid)}" data-pid="${esc(p.id)}">
+  return `<article class="card post" aria-label="${esc(mine ? 'Your' : (who.name || 'Friend') + '’s')} ${esc(p.kind === 'workout' ? (p.title || 'workout').toLowerCase() : 'milestone')}, ${esc(when(p.at))}" data-owner="${esc(p.uid)}" data-pid="${esc(p.id)}">
     <header class="post-head">${avatar(who.photo, who.name)}<div><b>${esc(mine ? 'You' : who.name || 'Friend')}</b><small class="muted">${when(p.at)}</small></div>
-      ${mine ? '<button class="btn small ghost post-hide" data-hide title="Remove this post from your feed">Hide</button>' : ''}</header>
-    <h4 class="post-title"><span class="post-emoji">${esc(p.emoji || '✨')}</span>${esc(p.kind === 'workout' && p.note ? p.note : p.title)}</h4>
+      ${mine ? `<button class="btn small ghost post-hide" data-hide>${icon('eye-off', { size: 15 })}Hide<span class="sr-only"> this post</span></button>` : ''}</header>
+    <h3 class="post-title"><span class="post-emoji" aria-hidden="true">${postIcon(p)}</span>${esc(p.kind === 'workout' && p.note ? p.note : p.title)}</h3>
     ${p.kind === 'workout' && p.note ? `<p class="muted small post-sub">${esc(p.title)}</p>` : ''}
     ${body}
     <footer class="post-foot"><span class="muted small">${esc(kudosLine)}</span>
-      ${mine ? `<span class="kudos-count">👏 ${kudos.length}</span>` : `<button class="btn small kudos ${gave ? 'on' : ''}" data-kudos aria-pressed="${gave}">👏 ${gave ? 'Kudos given' : 'Give kudos'}${kudos.length ? ` · ${kudos.length}` : ''}</button>`}</footer>
+      ${mine ? `<span class="kudos-count">${icon('thumbs-up', { size: 16 })} ${kudos.length}<span class="sr-only"> kudos</span></span>` : `<button class="btn small kudos ${gave ? 'on' : ''}" data-kudos aria-pressed="${gave}">${icon('thumbs-up', { size: 16 })}${gave ? 'Kudos given' : 'Give kudos'}${kudos.length ? ` · ${kudos.length}` : ''}</button>`}</footer>
   </article>`;
 }
 function feedHTML() {
@@ -393,7 +404,7 @@ function feedHTML() {
     .sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 80);
   return `<div class="feed">
     <section class="card week-card">
-      <div class="week-head"><h3>This week</h3><a href="#health" class="small">Log a workout →</a></div>
+      <div class="week-head"><h2>This week</h2><a href="#health" class="small">Log a workout${icon('arrow-right', { size: 15 })}</a></div>
       <div class="post-stats"><div><small>Workouts</small><b>${ws.n}</b></div><div><small>Time</small><b>${fmtDur(ws.min)}</b></div><div><small>Calories</small><b>${Math.round(ws.kcal).toLocaleString()}</b></div><div><small>Habit days</small><b>${ws.habitDays}</b></div></div>
     </section>
     ${!SOC.friendIds.length ? `<div class="card empty"><p>Add friends to see their workouts and give kudos.</p><button class="btn primary" data-view="friends">Find friends</button></div>` : ''}
@@ -407,9 +418,9 @@ export function renderFriends() {
     return;
   }
   const n = SOC.incoming.length;
-  el.innerHTML = `<div class="seg feed-seg" role="tablist">
-      <button type="button" role="tab" data-view="feed" class="${view === 'feed' ? 'on' : ''}" aria-selected="${view === 'feed'}">Feed</button>
-      <button type="button" role="tab" data-view="friends" class="${view === 'friends' ? 'on' : ''}" aria-selected="${view === 'friends'}">Friends${SOC.friendIds.length ? ` · ${SOC.friendIds.length}` : ''}${n ? ` <span class="seg-badge">${n}</span>` : ''}</button>
+  el.innerHTML = `<div class="seg feed-seg" role="group" aria-label="Show">
+      <button type="button" data-view="feed" class="${view === 'feed' ? 'on' : ''}">Feed</button>
+      <button type="button" data-view="friends" class="${view === 'friends' ? 'on' : ''}">Friends${SOC.friendIds.length ? ` · ${SOC.friendIds.length}` : ''}${n ? ` <span class="seg-badge">${n}<span class="sr-only"> new request${n === 1 ? '' : 's'}</span></span>` : ''}</button>
     </div>
     ${view === 'feed' ? feedHTML() : friendsHTML()}`;
 }
@@ -420,7 +431,7 @@ const sessionSet = (v) => { try { v ? sessionStorage.setItem('bloom-add', v) : s
 async function acceptReq(id) {
   const r = SOC.incoming.find((x) => x.id === id);
   if (!r) return;
-  try { await social().accept(r, myName(), myPhoto()); toast(`You and ${r.fromName || 'your friend'} are now friends 🌼`); }
+  try { await social().accept(r, myName(), myPhoto()); toast(`You and ${r.fromName || 'your friend'} are now friends`); }
   catch (e) { console.error(e); toast("Couldn't accept. Try again."); }
 }
 async function declineReq(id) {
@@ -477,7 +488,7 @@ export function bindFriends() {
       try {
         await so.cheer(fid, myName(), myPhoto());
         const c = LS.get('cheered', {}); c[fid] = todayKey(); LS.set('cheered', c);
-        toast(`Cheer sent to ${p.name || 'your friend'} 💧`); emit('social');
+        toast(`Cheer sent to ${p.name || 'your friend'}`); emit('social');
       } catch (err) { console.error(err); ch.disabled = false; toast("Couldn't send the cheer."); }
       return;
     }
@@ -497,7 +508,7 @@ export function bindFriends() {
       const r = await so.sendRequest(f.code.value, myName(), myPhoto());
       sessionSet('');
       f.code.value = '';
-      toast(r === 'accepted' ? "They'd already asked you, so you're now friends 🌼" : 'Friend request sent');
+      toast(r === 'accepted' ? "They'd already asked you, so you're now friends" : 'Friend request sent');
       emit('social');
     } catch (err) { toast(err.message || "Couldn't send the request."); }
     btn.disabled = false;
@@ -518,7 +529,7 @@ export function notifSettingsHTML() {
     : perm === 'denied' ? 'Blocked. Allow notifications for this site in your browser settings.'
     : deviceOn() ? 'On for this device.' : 'Off for this device.';
   return `<section class="card sbox">
-    <h3>Notifications</h3>
+    <h2>Notifications</h2>
     <div class="pref"><span>Device notifications<br><small class="muted">${status}</small></span>
       ${perm !== 'unsupported' && perm !== 'denied' ? (deviceOn() ? '<button class="btn small ghost" data-n-off>Turn off</button>' : '<button class="btn small primary" data-n-on>Turn on</button>') : ''}</div>
     <label class="pref check-row"><input type="checkbox" data-n-remind ${r.on ? 'checked' : ''}><span>Remind me if habits are still left at</span>

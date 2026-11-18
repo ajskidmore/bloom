@@ -3,7 +3,7 @@ import { FIREBASE_CONFIG } from '../firebase-config.js';
 import { S, setStore, store, onChange, emit } from './state.js';
 import { localStore, firebaseStore, resolveConfig } from './store.js';
 import { $, $$, esc, dayKey, fromKey, addDays, startOfDay, isToday, fmtLong, toast } from './util.js';
-import { flowerSVG } from './flower.js';
+import { flowerSVG, stageOf } from './flower.js';
 import { renderToday, bindToday, flowerHealth, updateGarden, resetStage } from './habits.js';
 import { renderFood, bindFood, openMealModal } from './food.js';
 import { renderHealth, bindHealth } from './health.js';
@@ -13,12 +13,12 @@ import { renderFriends, initSocial, setSocialView } from './social.js';
 import { bindFeedback } from './feedback.js';
 
 const TABS = {
-  today: { el: '#tab-today', render: renderToday, dated: true },
-  food: { el: '#tab-food', render: renderFood, dated: true },
-  health: { el: '#tab-health', render: renderHealth, dated: true },
-  trends: { el: '#tab-trends', render: renderTrends },
-  feed: { el: '#tab-friends', render: renderFriends },
-  settings: { el: '#tab-settings', render: renderSettings },
+  today: { el: '#tab-today', render: renderToday, dated: true, title: 'Today' },
+  food: { el: '#tab-food', render: renderFood, dated: true, title: 'Food' },
+  health: { el: '#tab-health', render: renderHealth, dated: true, title: 'Health' },
+  trends: { el: '#tab-trends', render: renderTrends, title: 'Trends' },
+  feed: { el: '#tab-friends', render: renderFriends, title: 'Feed' },
+  settings: { el: '#tab-settings', render: renderSettings, title: 'Settings' },
 };
 
 /* ---------- flower animation ---------- */
@@ -34,8 +34,15 @@ function loop(time) {
 function refreshFlower() {
   targetH = flowerHealth(new Date());
   updateGarden(targetH);
+  const pct = Math.round(targetH * 100);
   $('#miniFlower').innerHTML = flowerSVG(targetH, 0);
-  $('#miniPct').textContent = Math.round(targetH * 100) + '%';
+  $('#miniPct').textContent = pct + '%';
+  // The flower is a drawing, so describe it in words for screen readers.
+  const name = S.main.settings.flowerName || 'Bloom';
+  const stage = S.main.tasks.length ? stageOf(targetH) : 'happy';
+  const desc = `${name} is ${stage}, ${pct}% watered`;
+  $('#miniLink').setAttribute('aria-label', `Your flower: ${desc}. Go to Today`);
+  $('#flower').setAttribute('aria-label', `Your flower. ${desc}.`);
 }
 
 /* ---------- rendering with focus guard ---------- */
@@ -62,13 +69,26 @@ function renderCurrent() {
 document.addEventListener('focusout', () => setTimeout(() => { if (pending && !document.activeElement?.matches?.('input, textarea, select')) renderCurrent(); }, 0));
 
 /* ---------- routing ---------- */
+let navigated = false;
 function go(tab) {
   // #friends opens the Feed tab on its Friends view (invite links and older links use it).
   if (tab === 'friends' || tab === 'feed') { setSocialView(tab); tab = 'feed'; }
   if (!TABS[tab]) tab = 'today';
+  const changed = S.tab !== tab;
   S.tab = tab;
   Object.entries(TABS).forEach(([k, t]) => { $(t.el).hidden = k !== tab; });
-  $$('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  $$('[data-tab]').forEach((b) => {
+    const on = b.dataset.tab === tab;
+    b.classList.toggle('on', on);
+    if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  // One h1 per screen and a matching browser title, so assistive tech announces where you are.
+  document.body.dataset.tab = tab;
+  $('#pageTitle').textContent = TABS[tab].title;
+  document.title = `${TABS[tab].title} · Bloom`;
+  // After the first screen, switching tabs moves focus to the new heading instead of losing it.
+  if (navigated && changed) requestAnimationFrame(() => $('#pageTitle').focus({ preventScroll: true }));
+  navigated = true;
   $('#dateNav').hidden = !TABS[tab].dated;
   if (location.hash.slice(1) !== tab) history.replaceState(null, '', '#' + tab);
   window.scrollTo({ top: 0 });
@@ -98,13 +118,13 @@ function renderAuth(mode = 'signin', msg = '') {
   const google = '<svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
   $('#auth').innerHTML = `
     <svg class="signin-flower" viewBox="0 0 200 260" aria-hidden="true">${flowerSVG(0.95, 0)}</svg>
-    <h1>${mode === 'signup' ? 'Plant your garden' : mode === 'reset' ? 'Reset your password' : 'Welcome back'}</h1>
+    <h1 id="authTitle">${mode === 'signup' ? 'Plant your garden' : mode === 'reset' ? 'Reset your password' : 'Welcome back'}</h1>
     <p class="muted">${mode === 'reset' ? "We'll email you a link to set a new password." : 'Habits, food, sleep, workouts, and a flower that keeps you honest.'}</p>
     <form class="form auth-form" novalidate>
       ${mode === 'signup' ? '<label class="field"><span>Name</span><input name="name" autocomplete="name" placeholder="What should we call you?"></label>' : ''}
       <label class="field"><span>Email</span><input name="email" type="email" autocomplete="email" required></label>
       ${mode !== 'reset' ? `<label class="field"><span>Password</span><input name="password" type="password" autocomplete="${mode === 'signup' ? 'new-password' : 'current-password'}" minlength="6" required></label>` : ''}
-      <p class="form-error">${esc(msg)}</p>
+      <p class="form-error" role="alert">${esc(msg)}</p>
       <button class="btn primary big" type="submit">${mode === 'signup' ? 'Create account' : mode === 'reset' ? 'Send reset link' : 'Sign in'}</button>
     </form>
     ${mode !== 'reset' ? `<div class="or"><span>or</span></div><button class="btn google" data-google>${google} Continue with Google</button>` : ''}
@@ -135,6 +155,8 @@ function onUser() {
   $('#auth').hidden = signedIn;
   $('#main').hidden = !signedIn;
   $('#tabbar').hidden = !signedIn;
+  $('#pageTitle').hidden = !signedIn;
+  if (!signedIn) document.title = 'Sign in · Bloom';
   const area = $('#userArea');
   if (signedIn && !S.user.local) {
     const name = S.user.displayName || S.user.email || '';
@@ -152,6 +174,21 @@ function onUser() {
 // parts this code needs, reload once with fresh files instead of failing to a blank screen.
 const PAGE_PARTS = ['#bellBtn', '#tab-friends', '[data-tab="feed"]', '#friendsView'];
 function pageIsStale() { return PAGE_PARTS.some((s) => !document.querySelector(s)); }
+// Segmented controls and choice chips show their selection with an "on" class. Mirror that into
+// aria-pressed everywhere, so screen readers hear "selected" too, wherever the control was rendered.
+function syncPressed(root = document) {
+  root.querySelectorAll('.seg button, .chips[role=group] .chip').forEach((b) => {
+    const on = String(b.classList.contains('on'));
+    if (b.getAttribute('aria-pressed') !== on) b.setAttribute('aria-pressed', on);
+  });
+}
+new MutationObserver((muts) => {
+  for (const m of muts) {
+    if (m.type === 'attributes' && m.target.matches?.('.seg button, .chips[role=group] .chip')) syncPressed(m.target.parentElement);
+    else if (m.type === 'childList' && m.addedNodes.length) { syncPressed(); return; }
+  }
+}).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+
 async function boot() {
   if (pageIsStale()) {
     let tried = false;

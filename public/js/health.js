@@ -1,6 +1,7 @@
 /* Health tab: weight, sleep, water, mood & energy, steps, workouts, body measurements, journal. */
 import { S, store, emit, goals, units, day, latestWeight, weightSeries, workoutsOn } from './state.js';
 import { $, esc, num, round, uid, dayKey, addDays, fromKey, kgToLb, lbToKg, cmToIn, inToCm, modal, toast, clamp, sum } from './util.js';
+import { icon, WORKOUT_ICON } from './icons.js';
 
 export const weightUnit = () => (units() === 'metric' ? 'kg' : 'lb');
 export const toDisplayWeight = (kg) => (kg == null ? null : num(units() === 'metric' ? kg : kgToLb(kg), 1));
@@ -36,19 +37,19 @@ export function openWorkoutModal(dateKey, existing) {
   const w = existing || { type: 'strength', minutes: 45, intensity: 'moderate' };
   const dlg = modal(`
   <form class="form" novalidate>
-    <h3>${existing ? 'Edit workout' : 'Log a workout'}</h3>
-    <div class="chips type-chips">${WORKOUTS.map((x) => `<button type="button" class="chip ${x.id === w.type ? 'on' : ''}" data-type="${x.id}">${x.emoji} ${x.label}</button>`).join('')}</div>
+    <h2>${existing ? 'Edit workout' : 'Log a workout'}</h2>
+    <div class="chips type-chips" role="group" aria-label="Workout type">${WORKOUTS.map((x) => `<button type="button" class="chip ${x.id === w.type ? 'on' : ''}" data-type="${x.id}" aria-pressed="${x.id === w.type}">${icon(WORKOUT_ICON[x.id], { size: 16 })} ${x.label}</button>`).join('')}</div>
     <div class="row">
       <label class="field"><span>Minutes</span><input name="minutes" type="number" min="1" step="1" inputmode="numeric" value="${w.minutes}" class="w-110"></label>
-      <div class="field grow"><span>Intensity</span>
-        <div class="seg" data-name="intensity">${Object.keys(INTENSITY).map((k) => `<button type="button" data-v="${k}" class="${k === w.intensity ? 'on' : ''}">${k[0].toUpperCase() + k.slice(1)}</button>`).join('')}</div>
+      <div class="field grow"><span id="intensity-lbl">Intensity</span>
+        <div class="seg" data-name="intensity" role="group" aria-labelledby="intensity-lbl">${Object.keys(INTENSITY).map((k) => `<button type="button" data-v="${k}" class="${k === w.intensity ? 'on' : ''}" aria-pressed="${k === w.intensity}">${k[0].toUpperCase() + k.slice(1)}</button>`).join('')}</div>
       </div>
     </div>
     <div class="row">
       <label class="field"><span>Calories burned</span><input name="kcal" type="number" min="0" step="1" inputmode="numeric" class="w-110"></label>
       <label class="field grow"><span>Note (optional)</span><input name="note" placeholder="e.g. legs day, 5k" value="${esc(w.note || '')}"></label>
     </div>
-    <p class="hint" data-hint></p>
+    <p class="hint" data-hint aria-live="polite"></p>
     ${store.mode === 'cloud' ? `<label class="check-row share-row"><input type="checkbox" name="share" ${(existing ? existing.share !== false : shareDefault()) ? 'checked' : ''}><span>Share to my feed <small class="muted">(friends see the type, time, calories and note)</small></span></label>` : ''}
     <div class="dlg-actions">
       ${existing ? '<button type="button" class="btn ghost danger" data-delete>Delete</button>' : ''}
@@ -69,9 +70,9 @@ export function openWorkoutModal(dateKey, existing) {
   recalc();
   form.addEventListener('click', (e) => {
     const c = e.target.closest('[data-type]');
-    if (c) { type = c.dataset.type; form.querySelectorAll('[data-type]').forEach((b) => b.classList.toggle('on', b === c)); recalc(); }
+    if (c) { type = c.dataset.type; form.querySelectorAll('[data-type]').forEach((b) => { b.classList.toggle('on', b === c); b.setAttribute('aria-pressed', b === c); }); recalc(); }
     const s = e.target.closest('.seg button');
-    if (s) { form.querySelectorAll('.seg button').forEach((b) => b.classList.toggle('on', b === s)); recalc(); }
+    if (s) { form.querySelectorAll('.seg button').forEach((b) => { b.classList.toggle('on', b === s); b.setAttribute('aria-pressed', b === s); }); recalc(); }
   });
   form.minutes.addEventListener('input', recalc);
   form.kcal.addEventListener('input', () => { kcalTouched = true; });
@@ -94,17 +95,23 @@ export function openWorkoutModal(dateKey, existing) {
     const before = workoutsOn(dateKey).length;
     store.saveDay(dateKey, { workouts: ws });
     dlg.close(); emit('health');
-    if (ws.length > before) { toast(`${W_BY_ID[type].emoji} Nice! Workout logged.`); import('./habits.js').then((m) => m.water()); }
+    if (ws.length > before) { toast('Nice! Workout logged.'); import('./habits.js').then((m) => m.water()); }
   });
 }
 
 /* ---------- Rendering ---------- */
 const MOODS = ['😞', '🙁', '😐', '🙂', '😄'];
+const MOOD_NAMES = ['Rough', 'Low', 'Okay', 'Good', 'Great'];
 const ENERGY = ['🪫', '😴', '🙂', '💪', '⚡'];
+const ENERGY_NAMES = ['Drained', 'Tired', 'Okay', 'Strong', 'Energized'];
 const SLEEPQ = ['Awful', 'Poor', 'OK', 'Good', 'Great'];
 
-function scale(name, current, icons, labels) {
-  return `<div class="scale" data-field="${name}">${icons.map((ic, i) => `<button type="button" class="${current === i + 1 ? 'on' : ''}" data-v="${i + 1}" title="${labels ? labels[i] : i + 1}" aria-label="${name} ${i + 1}">${ic}</button>`).join('')}</div>`;
+// A 1-5 rating. Each button says its meaning ("Mood: Good, 4 of 5") and whether it's selected.
+function scale(name, current, faces, labels, groupLabel) {
+  return `<div class="scale" data-field="${name}" role="group" aria-label="${groupLabel}">${faces.map((f, i) => {
+    const on = current === i + 1;
+    return `<button type="button" class="${on ? 'on' : ''}" data-v="${i + 1}" title="${labels[i]}" aria-pressed="${on}" aria-label="${labels[i]}, ${i + 1} of 5"><span aria-hidden="true">${f}</span></button>`;
+  }).join('')}</div>`;
 }
 
 function weightCard(key) {
@@ -116,8 +123,8 @@ function weightCard(key) {
   const p = S.main.profile;
   const bmi = last && p.heightCm ? num(last / (p.heightCm / 100) ** 2, 1) : null;
   return `<article class="card hcard">
-    <header><span class="h-ico">⚖️</span><h3>Weight</h3></header>
-    <div class="amount big"><input type="number" step="0.1" inputmode="decimal" data-weight value="${weightInputValue(cur)}" placeholder="${last ? toDisplayWeight(last) : weightUnit()}" aria-label="Weight in ${weightUnit()}"><span class="unit">${weightUnit()}</span><button class="add" data-action="save-weight">Save</button></div>
+    <header><span class="h-ico">${icon('scale', { size: 18 })}</span><h2>Weight</h2></header>
+    <div class="amount big"><input type="number" step="0.1" inputmode="decimal" data-weight value="${weightInputValue(cur)}" placeholder="${last ? toDisplayWeight(last) : weightUnit()}" aria-label="Weight in ${weightUnit()}"><span class="unit">${weightUnit()}</span><button class="add" data-action="save-weight">Save<span class="sr-only"> weight</span></button></div>
     <p class="muted small">${cur ? 'Logged for this day.' : last ? `Last: ${toDisplayWeight(last)} ${weightUnit()}` : 'Weigh in to track your trend.'}
     ${delta != null ? ` · <b class="${delta <= 0 ? 'good-t' : 'warn-t'}">${delta > 0 ? '+' : ''}${num(delta, 1)} ${weightUnit()}</b> vs last week` : ''}${bmi ? ` · BMI ${bmi}` : ''}</p>
   </article>`;
@@ -129,7 +136,7 @@ export function renderHealth() {
   const water = d.water || 0;
   const ws = d.workouts || [];
   const burned = sum(ws.map((w) => w.kcal)), mins = sum(ws.map((w) => w.minutes));
-  const glasses = Array.from({ length: Math.max(g.water, water) }, (_, i) => `<span class="glass ${i < water ? 'full' : ''}">💧</span>`).join('');
+  const glasses = Array.from({ length: Math.max(g.water, water) }, (_, i) => `<span class="glass ${i < water ? 'full' : ''}">${icon('droplet', { size: 20 })}</span>`).join('');
   const stepPct = clamp(((d.steps || 0) / (g.steps || 8000)) * 100, 0, 100);
   const sleepPct = clamp(((d.sleep || 0) / (g.sleep || 8)) * 100, 0, 100);
   const metric = units() === 'metric';
@@ -139,42 +146,42 @@ export function renderHealth() {
     ${weightCard(key)}
 
     <article class="card hcard">
-      <header><span class="h-ico">😴</span><h3>Sleep</h3><small>goal ${g.sleep} hrs</small></header>
+      <header><span class="h-ico">${icon('moon', { size: 18 })}</span><h2>Sleep</h2><small>goal ${g.sleep} hrs</small></header>
       <div class="amount big"><input type="number" step="0.25" min="0" max="24" inputmode="decimal" data-num="sleep" value="${d.sleep ?? ''}" placeholder="hrs" aria-label="Hours slept"><span class="unit">hrs</span></div>
-      <div class="progress"><div style="width:${sleepPct}%"></div></div>
-      <div class="field-inline"><span class="muted small">Quality</span>${scale('sleepQ', d.sleepQ, ['1', '2', '3', '4', '5'], SLEEPQ)}</div>
+      <div class="progress" aria-hidden="true"><div style="width:${sleepPct}%"></div></div>
+      <div class="field-inline"><span class="muted small" aria-hidden="true">Quality</span>${scale('sleepQ', d.sleepQ, ['1', '2', '3', '4', '5'], SLEEPQ, 'Sleep quality')}</div>
     </article>
 
     <article class="card hcard">
-      <header><span class="h-ico">💧</span><h3>Water</h3><small>goal ${g.water} glasses</small></header>
-      <div class="water-row"><div class="glasses">${glasses}</div>
-        <div class="counter"><button data-action="water-dec" aria-label="One less glass">−</button><span>${water}</span><button data-action="water-inc" aria-label="One more glass">+</button></div></div>
+      <header><span class="h-ico">${icon('droplet', { size: 18 })}</span><h2>Water</h2><small>goal ${g.water} glasses</small></header>
+      <div class="water-row"><div class="glasses" aria-hidden="true">${glasses}</div>
+        <div class="counter"><button data-action="water-dec" aria-label="One less glass">${icon('minus', { size: 18 })}</button><span aria-live="polite"><span class="sr-only">Water: </span>${water}<span class="sr-only"> of ${g.water} glasses</span></span><button data-action="water-inc" aria-label="One more glass">${icon('plus', { size: 18 })}</button></div></div>
       <p class="muted small">1 glass = 8 oz / 240 ml</p>
     </article>
 
     <article class="card hcard">
-      <header><span class="h-ico">🙂</span><h3>Mood & energy</h3></header>
-      <div class="field-inline"><span class="muted small">Mood</span>${scale('mood', d.mood, MOODS)}</div>
-      <div class="field-inline"><span class="muted small">Energy</span>${scale('energy', d.energy, ENERGY)}</div>
+      <header><span class="h-ico">${icon('smile', { size: 18 })}</span><h2>Mood & energy</h2></header>
+      <div class="field-inline"><span class="muted small" aria-hidden="true">Mood</span>${scale('mood', d.mood, MOODS, MOOD_NAMES, 'Mood')}</div>
+      <div class="field-inline"><span class="muted small" aria-hidden="true">Energy</span>${scale('energy', d.energy, ENERGY, ENERGY_NAMES, 'Energy')}</div>
     </article>
 
     <article class="card hcard">
-      <header><span class="h-ico">👟</span><h3>Steps</h3><small>goal ${(g.steps || 8000).toLocaleString()}</small></header>
+      <header><span class="h-ico">${icon('footprints', { size: 18 })}</span><h2>Steps</h2><small>goal ${(g.steps || 8000).toLocaleString()}</small></header>
       <div class="amount big"><input type="number" step="1" min="0" inputmode="numeric" data-num="steps" value="${d.steps ?? ''}" placeholder="steps" aria-label="Steps"><span class="unit">steps</span></div>
-      <div class="progress"><div style="width:${stepPct}%"></div></div>
+      <div class="progress" aria-hidden="true"><div style="width:${stepPct}%"></div></div>
     </article>
 
     <article class="card hcard wide">
-      <header><span class="h-ico">🏋️</span><h3>Workouts</h3><small>${ws.length ? `${mins} min · ~${burned} kcal burned` : ''}</small>
-        <button class="btn small primary push" data-action="add-workout">+ Log workout</button></header>
-      ${ws.length ? `<ul class="wlist">${ws.map((w) => `<li data-wid="${w.id}"><span class="w-ico">${W_BY_ID[w.type]?.emoji || '✨'}</span>
+      <header><span class="h-ico">${icon('dumbbell', { size: 18 })}</span><h2>Workouts</h2><small>${ws.length ? `${mins} min · ~${burned} kcal burned` : ''}</small>
+        <button class="btn small primary push" data-action="add-workout">${icon('plus', { size: 16 })}Log workout</button></header>
+      ${ws.length ? `<ul class="wlist">${ws.map((w) => `<li data-wid="${w.id}"><span class="w-ico">${icon(WORKOUT_ICON[w.type] || 'sparkles', { size: 20 })}</span>
         <span class="w-main"><b>${W_BY_ID[w.type]?.label || 'Workout'}</b> <span class="muted">${w.minutes} min · ${w.intensity}${w.note ? ' · ' + esc(w.note) : ''}</span></span>
-        <span class="w-kcal">${w.kcal} kcal</span><button class="icon-btn" data-action="edit-workout" aria-label="Edit workout">✎</button></li>`).join('')}</ul>`
+        <span class="w-kcal">${w.kcal} kcal</span><button class="icon-btn" data-action="edit-workout" aria-label="Edit ${esc(W_BY_ID[w.type]?.label || 'workout')}, ${w.minutes} minutes">${icon('pencil', { size: 18 })}</button></li>`).join('')}</ul>`
     : '<p class="muted small">Nothing logged yet. Walks count too!</p>'}
     </article>
 
     <article class="card hcard">
-      <header><span class="h-ico">📏</span><h3>Body</h3><small>optional</small></header>
+      <header><span class="h-ico">${icon('ruler', { size: 18 })}</span><h2>Body</h2><small>optional</small></header>
       <div class="mini-fields">
         <label><span>Body fat %</span><input type="number" step="0.1" data-num="bodyFat" value="${d.bodyFat ?? ''}" inputmode="decimal"></label>
         <label><span>Waist (${metric ? 'cm' : 'in'})</span><input type="number" step="0.1" data-waist value="${d.waistCm != null ? num(metric ? d.waistCm : cmToIn(d.waistCm), 1) : ''}" inputmode="decimal"></label>
@@ -183,8 +190,8 @@ export function renderHealth() {
     </article>
 
     <article class="card hcard wide">
-      <header><span class="h-ico">📝</span><h3>Journal</h3><small data-saved></small></header>
-      <textarea data-notes rows="3" placeholder="How did today go? Anything you want to remember?">${esc(d.notes || '')}</textarea>
+      <header><span class="h-ico">${icon('notebook-pen', { size: 18 })}</span><h2 id="journal-h">Journal</h2><small data-saved aria-live="polite"></small></header>
+      <textarea data-notes rows="3" aria-labelledby="journal-h" placeholder="How did today go? Anything you want to remember?">${esc(d.notes || '')}</textarea>
     </article>
   </div>`;
 }
@@ -214,7 +221,7 @@ export function bindHealth() {
       case 'save-weight': {
         const v = parseFloat(root.querySelector('[data-weight]').value);
         if (!isFinite(v) || v <= 0) return root.querySelector('[data-weight]').focus();
-        saveWeightFromInput(v, key()); emit('health'); toast('Weight saved ⚖️'); break;
+        saveWeightFromInput(v, key()); emit('health'); toast('Weight saved'); break;
       }
       case 'add-workout': openWorkoutModal(key()); break;
       case 'edit-workout': {

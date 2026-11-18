@@ -3,12 +3,13 @@ import { S, store, emit, goals, mealsOn, mealTotals, dayTotals, burnedOn } from 
 import { $, esc, num, round, uid, dayKey, fromKey, addDays, nowHHMM, fmtTime, debounce, modal, toast, compressImage, clamp, sum } from './util.js';
 import { parseMeal, unitOptions, itemFromFood, recomputeItem, findFood, searchFoods } from './foodParse.js';
 import { reactAround } from './habits.js';
+import { icon } from './icons.js';
 
 export const MEAL_TYPES = [
-  { id: 'breakfast', label: 'Breakfast', emoji: '🍳' },
-  { id: 'lunch', label: 'Lunch', emoji: '🥪' },
-  { id: 'dinner', label: 'Dinner', emoji: '🍝' },
-  { id: 'snack', label: 'Snacks', emoji: '🍎' },
+  { id: 'breakfast', label: 'Breakfast', emoji: '🍳', icon: 'sunrise' },
+  { id: 'lunch', label: 'Lunch', emoji: '🥪', icon: 'sandwich' },
+  { id: 'dinner', label: 'Dinner', emoji: '🍝', icon: 'utensils-crossed' },
+  { id: 'snack', label: 'Snacks', emoji: '🍎', icon: 'apple' },
 ];
 const TYPE_BY_ID = Object.fromEntries(MEAL_TYPES.map((t) => [t.id, t]));
 function typeForTime(hhmm) {
@@ -26,7 +27,7 @@ function ring(eaten, budget) {
   const r = 52, c = 2 * Math.PI * r;
   const frac = budget ? clamp(eaten / budget, 0, 1) : 0;
   const over = eaten > budget;
-  return `<svg viewBox="0 0 132 132" class="ring" role="img" aria-label="${round(eaten)} of ${round(budget)} calories">
+  return `<svg viewBox="0 0 132 132" class="ring" role="img" aria-label="${fmtK(eaten)} of ${fmtK(budget)} calories eaten, ${fmtK(Math.abs(budget - eaten))} ${over ? 'over' : 'left'}">
     <circle cx="66" cy="66" r="${r}" fill="none" stroke="var(--track)" stroke-width="12"/>
     <circle cx="66" cy="66" r="${r}" fill="none" stroke="${over ? 'var(--bad)' : 'var(--green)'}" stroke-width="12" stroke-linecap="round"
       stroke-dasharray="${(c * frac).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 66 66)"/>
@@ -38,7 +39,7 @@ const fmtK = (n) => round(n).toLocaleString();
 
 function macroBar(label, val, goal, unit = 'g', cls = '') {
   const pct = goal ? clamp((val / goal) * 100, 0, 100) : 0;
-  return `<div class="macro ${cls}"><div class="macro-top"><span>${label}</span><span><b>${round(val)}</b> / ${round(goal)}${unit}</span></div><div class="progress"><div style="width:${pct}%"></div></div></div>`;
+  return `<div class="macro ${cls}"><div class="macro-top"><span>${label}</span><span><b>${round(val)}</b> / ${round(goal)}${unit}</span></div><div class="progress" aria-hidden="true"><div style="width:${pct}%"></div></div></div>`;
 }
 
 export function renderFood() {
@@ -64,20 +65,20 @@ export function renderFood() {
       ${macroBar('Carbs', t.c, g.carbs, 'g', 'm-c')}
       ${macroBar('Fat', t.f, g.fat, 'g', 'm-f')}
       ${macroBar('Fiber', t.fiber, g.fiber, 'g', 'm-fi')}
-      ${!S.main.settings.addExercise && burned ? `<p class="muted small">🔥 ${fmtK(burned)} kcal burned in workouts (not added to your budget; change this in Settings)</p>` : ''}
+      ${!S.main.settings.addExercise && burned ? `<p class="muted small">${icon('flame', { size: 15 })} ${fmtK(burned)} kcal burned in workouts (not added to your budget; change this in Settings)</p>` : ''}
       ${noProfile ? `<p class="muted small">Using default targets. <a href="#settings">Set up your goals</a> for personalized calories & macros.</p>` : ''}
     </div>
   </section>
 
-  <div class="list-head"><h2>Meals</h2><button class="btn primary" data-action="log-meal">📷 Log a meal</button></div>
+  <div class="list-head"><h2>Meals</h2><button class="btn primary" data-action="log-meal">${icon('camera', { size: 18 })}Log a meal</button></div>
   <div class="meal-groups">
     ${MEAL_TYPES.map((mt) => {
       const ms = meals.filter((m) => m.type === mt.id);
       const kc = sum(ms.map((m) => mealTotals(m).kcal));
       return `<section class="meal-group">
-        <div class="period-head"><h3>${mt.emoji} ${mt.label}</h3><small>${ms.length ? fmtK(kc) + ' kcal' : ''}</small>
-          <button class="icon-btn" data-action="log-meal" data-type="${mt.id}" aria-label="Add ${mt.label}">＋</button></div>
-        ${ms.length ? ms.map(mealCard).join('') : `<button class="meal-empty" data-action="log-meal" data-type="${mt.id}">+ Add ${mt.label.toLowerCase()}</button>`}
+        <div class="period-head"><h3>${icon(mt.icon, { size: 16 })} ${mt.label}</h3><small>${ms.length ? fmtK(kc) + ' kcal' : ''}</small>
+          <button class="icon-btn" data-action="log-meal" data-type="${mt.id}" aria-label="Add to ${mt.label.toLowerCase()}">${icon('plus', { size: 18 })}</button></div>
+        ${ms.length ? ms.map(mealCard).join('') : `<button class="meal-empty" data-action="log-meal" data-type="${mt.id}">${icon('plus', { size: 16 })} Add ${mt.label.toLowerCase()}</button>`}
       </section>`;
     }).join('')}
   </div>`;
@@ -88,10 +89,10 @@ function mealCard(m) {
   const t = mealTotals(m);
   const title = m.description?.trim() || (m.items || []).map((i) => i.name).join(', ') || 'Meal';
   return `<button class="meal card" data-meal="${m.id}">
-    <span class="thumb" ${m.hasPhoto ? `data-photo="${m.id}"` : ''}>${m.hasPhoto ? '' : TYPE_BY_ID[m.type]?.emoji || '🍽️'}</span>
+    <span class="thumb" aria-hidden="true" ${m.hasPhoto ? `data-photo="${m.id}"` : ''}>${m.hasPhoto ? '' : icon(TYPE_BY_ID[m.type]?.icon || 'utensils', { size: 22 })}</span>
     <span class="meal-main"><span class="meal-title">${esc(title)}</span>
       <span class="meal-meta">${m.time ? fmtTime(m.time) + ' · ' : ''}P ${round(t.p)}g · C ${round(t.c)}g · F ${round(t.f)}g</span></span>
-    <span class="meal-kcal">${fmtK(t.kcal)}<small>kcal</small></span>
+    <span class="meal-kcal">${fmtK(t.kcal)}<small> kcal</small></span><span class="sr-only">. Edit meal</span>
   </button>`;
 }
 
@@ -100,7 +101,7 @@ async function loadThumbs(root) {
     const id = el.dataset.photo;
     const data = await store.getPhoto(id);
     if (data && el.isConnected) el.style.backgroundImage = `url("${data}")`;
-    else if (el.isConnected) el.textContent = '🍽️';
+    else if (el.isConnected) el.innerHTML = icon('utensils', { size: 22 });
   }
 }
 
@@ -141,14 +142,14 @@ export function openMealModal({ date, type, meal } = {}) {
   <form class="form meal-form" novalidate>
     <h3>${editing ? 'Edit meal' : 'Log a meal'}</h3>
     <div class="meal-top">
-      <label class="photo-drop" title="Add a photo">
-        <input type="file" accept="image/*" capture="environment" hidden data-photo-input>
+      <label class="photo-drop">
+        <input type="file" accept="image/*" capture="environment" class="sr-only" data-photo-input aria-label="Add a meal photo">
         <img alt="Meal photo" hidden data-photo-img>
-        <span class="photo-ph" data-photo-ph>📷<small>Add photo</small></span>
-        <button type="button" class="photo-x" data-photo-remove hidden aria-label="Remove photo">✕</button>
+        <span class="photo-ph" data-photo-ph aria-hidden="true">${icon('image-plus', { size: 28 })}<small>Add photo</small></span>
+        <button type="button" class="photo-x" data-photo-remove hidden aria-label="Remove photo">${icon('x', { size: 16 })}</button>
       </label>
       <div class="meal-meta-fields">
-        <div class="seg seg-wrap" data-name="type">${MEAL_TYPES.map((t) => `<button type="button" data-v="${t.id}">${t.emoji} ${t.label.replace('Snacks', 'Snack')}</button>`).join('')}</div>
+        <div class="seg seg-wrap" data-name="type" role="group" aria-label="Meal">${MEAL_TYPES.map((t) => `<button type="button" data-v="${t.id}">${icon(t.icon, { size: 16 })} ${t.label.replace('Snacks', 'Snack')}</button>`).join('')}</div>
         <div class="row">
           <label class="field grow"><span>Date</span><input type="date" name="date"></label>
           <label class="field grow"><span>Time</span><input type="time" name="time"></label>
@@ -157,14 +158,14 @@ export function openMealModal({ date, type, meal } = {}) {
     </div>
     <label class="field"><span>What did you eat?</span>
       <textarea name="desc" rows="2" placeholder="e.g. 2 scrambled eggs, 2 slices wheat toast with butter, black coffee"></textarea></label>
-    ${recents.length || favs.length ? `<div class="chips quick">${favs.slice(0, 6).map((f) => `<button type="button" class="chip fav" data-fav="${f.id}">★ ${esc(f.name)}</button>`).join('')}${recents.map((r) => `<button type="button" class="chip" data-recent="${r.id}">↺ ${esc(r.description.slice(0, 34))}${r.description.length > 34 ? '…' : ''}</button>`).join('')}</div>` : ''}
-    <div class="field"><span>Portion size <em class="muted">(look at your photo: how big was it?)</em></span>
-      <div class="seg" data-name="portion">${PORTIONS.map((p) => `<button type="button" data-v="${p.v}">${p.label}${p.v !== 1 ? ` ×${p.v}` : ''}</button>`).join('')}</div></div>
-    <div class="items-head"><span>Estimate <em class="muted">· edit anything</em></span><button type="button" class="btn ghost small" data-reestimate hidden>↻ Re-estimate from description</button></div>
-    <div class="items" data-items></div>
+    ${recents.length || favs.length ? `<div class="chips quick">${favs.slice(0, 6).map((f) => `<button type="button" class="chip fav" data-fav="${f.id}">${icon('star', { size: 14 })} ${esc(f.name)}<span class="sr-only"> (favorite)</span></button>`).join('')}${recents.map((r) => `<button type="button" class="chip" data-recent="${r.id}">${icon('rotate-cw', { size: 14 })}<span class="sr-only">Log again: </span> ${esc(r.description.slice(0, 34))}${r.description.length > 34 ? '…' : ''}</button>`).join('')}</div>` : ''}
+    <div class="field"><span id="portion-lbl">Portion size <em class="muted">(look at your photo: how big was it?)</em></span>
+      <div class="seg" data-name="portion" role="group" aria-labelledby="portion-lbl">${PORTIONS.map((p) => `<button type="button" data-v="${p.v}">${p.label}${p.v !== 1 ? ` ×${p.v}` : ''}</button>`).join('')}</div></div>
+    <div class="items-head"><span>Estimate <em class="muted">· edit anything</em></span><button type="button" class="btn ghost small" data-reestimate hidden>${icon('rotate-cw', { size: 14 })}Re-estimate from description</button></div>
+    <div class="items" data-items role="list" aria-label="Foods in this meal"></div>
     <div class="unknown" data-unknown></div>
-    <div class="add-food"><input type="search" placeholder="+ Add a food… (search e.g. “avocado”)" data-search autocomplete="off"><div class="suggest" data-suggest></div></div>
-    <div class="totals" data-totals></div>
+    <div class="add-food"><input type="search" placeholder="+ Add a food… (search e.g. “avocado”)" data-search autocomplete="off" aria-label="Add a food: search"><div class="suggest" data-suggest></div></div>
+    <div class="totals" data-totals aria-live="polite"></div>
     <label class="check-row"><input type="checkbox" data-savefav> <span>Save as a favorite (one tap to log it again, and the parser will recognize its name)</span></label>
     <div class="dlg-actions">
       ${editing ? '<button type="button" class="btn ghost danger" data-delete>Delete</button>' : ''}
@@ -197,20 +198,22 @@ export function openMealModal({ date, type, meal } = {}) {
   /* ----- items ----- */
   const renderItems = () => {
     const box = q('[data-items]');
+    box.setAttribute('role', m.items.length ? 'list' : 'group');
     if (!m.items.length) box.innerHTML = `<p class="muted small empty-items">Describe your meal above and the estimate will appear here. Or add foods one by one.</p>`;
     else box.innerHTML = m.items.map((it, i) => {
       const food = it.foodId ? findFood(it.foodId) : null;
       const opts = food ? unitOptions(food) : [it.unit || 'serving'];
       if (!opts.includes(it.unit)) opts.unshift(it.unit);
-      return `<div class="item-row ${it.manual ? 'manual' : ''}" data-i="${i}">
-        <input class="it-name" data-f="name" value="${esc(it.name)}" aria-label="Food name">
-        <input class="it-qty" data-f="qty" type="number" step="any" min="0" inputmode="decimal" value="${it.qty}" aria-label="Quantity">
-        <select class="it-unit" data-f="unit" aria-label="Unit">${opts.map((u) => `<option ${u === it.unit ? 'selected' : ''}>${u}</option>`).join('')}</select>
-        <label class="it-n"><input data-f="kcal" type="number" step="1" inputmode="numeric" value="${round(it.kcal)}"><span>kcal</span></label>
-        <label class="it-n"><input data-f="p" type="number" step="any" inputmode="decimal" value="${num(it.p, 1)}"><span>P</span></label>
-        <label class="it-n"><input data-f="c" type="number" step="any" inputmode="decimal" value="${num(it.c, 1)}"><span>C</span></label>
-        <label class="it-n"><input data-f="f" type="number" step="any" inputmode="decimal" value="${num(it.f, 1)}"><span>F</span></label>
-        <button type="button" class="icon-btn it-x" data-remove aria-label="Remove ${esc(it.name)}">✕</button>
+      const nm = esc(it.name || `food ${i + 1}`);
+      return `<div class="item-row ${it.manual ? 'manual' : ''}" data-i="${i}" role="listitem">
+        <input class="it-name" data-f="name" value="${esc(it.name)}" aria-label="Food ${i + 1} name">
+        <input class="it-qty" data-f="qty" type="number" step="any" min="0" inputmode="decimal" value="${it.qty}" aria-label="${nm}: quantity">
+        <select class="it-unit" data-f="unit" aria-label="${nm}: unit">${opts.map((u) => `<option ${u === it.unit ? 'selected' : ''}>${u}</option>`).join('')}</select>
+        <label class="it-n"><input data-f="kcal" type="number" step="1" inputmode="numeric" value="${round(it.kcal)}" aria-label="${nm}: calories"><span aria-hidden="true">kcal</span></label>
+        <label class="it-n"><input data-f="p" type="number" step="any" inputmode="decimal" value="${num(it.p, 1)}" aria-label="${nm}: protein grams"><span aria-hidden="true">P</span></label>
+        <label class="it-n"><input data-f="c" type="number" step="any" inputmode="decimal" value="${num(it.c, 1)}" aria-label="${nm}: carbs grams"><span aria-hidden="true">C</span></label>
+        <label class="it-n"><input data-f="f" type="number" step="any" inputmode="decimal" value="${num(it.f, 1)}" aria-label="${nm}: fat grams"><span aria-hidden="true">F</span></label>
+        <button type="button" class="icon-btn it-x" data-remove aria-label="Remove ${nm}">${icon('x', { size: 16 })}</button>
         ${it.size ? `<span class="it-note">${it.size}</span>` : ''}${!it.foodId ? '<span class="it-note">custom</span>' : ''}
       </div>`;
     }).join('');
@@ -222,7 +225,7 @@ export function openMealModal({ date, type, meal } = {}) {
   };
   const renderUnknown = () => {
     q('[data-unknown]').innerHTML = unknown.length
-      ? `<span>Didn't recognize:</span> ${unknown.map((u) => `<button type="button" class="chip warn" data-add-unknown="${esc(u)}">+ ${esc(u)}</button>`).join('')} <em class="muted small">Tap to add it and type in the calories.</em>`
+      ? `<span>Didn't recognize:</span> ${unknown.map((u) => `<button type="button" class="chip warn" data-add-unknown="${esc(u)}">${icon('plus', { size: 14 })} ${esc(u)}<span class="sr-only"> (add manually)</span></button>`).join('')} <em class="muted small">Tap to add it and type in the calories.</em>`
       : '';
   };
   const estimate = () => {
@@ -347,7 +350,7 @@ export function openMealModal({ date, type, meal } = {}) {
       emit('food');
     }
     dlg.close();
-    toast(editing ? 'Meal updated' : `Logged ${fmtK(mealTotals(m).kcal)} kcal 🍽️`);
+    toast(editing ? 'Meal updated' : `Logged ${fmtK(mealTotals(m).kcal)} kcal`);
   });
   if (!editing) setTimeout(() => form.desc.focus(), 40);
 }

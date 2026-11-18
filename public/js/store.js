@@ -108,7 +108,7 @@ export async function firebaseStore(config) {
     unsubs.push(F.onSnapshot(sub('days'), (qs) => {
       const days = {};
       qs.forEach((d) => { days[d.id] = d.data(); });
-      S.days = days; emit('all');
+      S.days = days; S.daysReady = true; emit('all');
     }, fail));
     const cutoff = dayKey(addDays(new Date(), -400));
     unsubs.push(F.onSnapshot(F.query(sub('meals'), F.where('date', '>=', cutoff)), (qs) => {
@@ -292,7 +292,7 @@ export async function firebaseStore(config) {
     start() {
       A.onAuthStateChanged(auth, (user) => {
         uid = user?.uid || null;
-        S.mainReady = false;
+        S.mainReady = false; S.daysReady = false;
         S.user = user || null;
         if (!user) { setMain(null); S.days = {}; S.meals = {}; }
         emit('user');

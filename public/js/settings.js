@@ -15,7 +15,7 @@ export function renderSettings() {
   $('#settingsView').innerHTML = `
   <div class="settings">
     <section class="card sbox">
-      <h3>You & your goals</h3>
+      <h2>You & your goals</h2>
       <p class="muted small">Used to estimate your daily calories (Mifflin–St Jeor) and macro targets. Everything stays editable.</p>
       <form data-profile class="form">
         <div class="row wrap">
@@ -40,7 +40,7 @@ export function renderSettings() {
     </section>
 
     <section class="card sbox">
-      <h3>Daily targets ${g.auto ? '<span class="pill">auto</span>' : '<span class="pill warn">custom</span>'}</h3>
+      <h2>Daily targets ${g.auto ? '<span class="pill">auto</span>' : '<span class="pill warn">custom</span>'}</h2>
       <form data-goals class="form">
         <div class="goal-grid">
           ${[['calories', 'Calories', 'kcal'], ['protein', 'Protein', 'g'], ['carbs', 'Carbs', 'g'], ['fat', 'Fat', 'g'], ['fiber', 'Fiber', 'g'], ['water', 'Water', 'glasses'], ['sleep', 'Sleep', 'hrs'], ['steps', 'Steps', '']]
@@ -51,7 +51,7 @@ export function renderSettings() {
     </section>
 
     <section class="card sbox">
-      <h3>Preferences</h3>
+      <h2>Preferences</h2>
       <div class="pref"><span>Units</span><div class="seg" data-units>
         <button type="button" data-v="imperial" class="${!metric ? 'on' : ''}">lb · ft · in</button>
         <button type="button" data-v="metric" class="${metric ? 'on' : ''}">kg · cm</button></div></div>
@@ -62,7 +62,7 @@ export function renderSettings() {
     ${notifSettingsHTML()}
 
     <section class="card sbox">
-      <h3>Favorite foods & meals</h3>
+      <h2>Favorite foods & meals</h2>
       <p class="muted small">Saved items show up as one-tap chips when logging, and the description parser recognizes their names (e.g. “my usual smoothie”).</p>
       <ul class="favs">${(S.main.customFoods || []).map((f) => `<li><span><b>${esc(f.name)}</b> <span class="muted small">${round(f.kcal)} kcal · P ${num(f.p, 1)} · C ${num(f.c, 1)} · F ${num(f.f, 1)}</span></span><button class="icon-btn" data-delfav="${f.id}" aria-label="Delete ${esc(f.name)}">✕</button></li>`).join('') || '<li class="muted small">None yet.</li>'}</ul>
       <form data-newfav class="form">
@@ -78,7 +78,7 @@ export function renderSettings() {
     </section>
 
     <section class="card sbox">
-      <h3>Your data</h3>
+      <h2>Your data</h2>
       <p class="muted small">${store.mode === 'cloud' ? 'Synced to your account and private to you.' : 'Saved in this browser only (local mode).'} Meal photos are stored compressed (about 50 KB each).</p>
       <div class="btn-row">
         <button class="btn" data-export>⬇ Export backup (.json)</button>
@@ -90,7 +90,7 @@ export function renderSettings() {
     ${feedbackHTML()}
 
     <section class="card sbox">
-      <h3>Account</h3>
+      <h2>Account</h2>
       ${store.mode === 'cloud' && user
         ? `<p>Signed in as <b>${esc(user.displayName || user.email || 'you')}</b>${user.email && user.displayName ? ` <span class="muted">(${esc(user.email)})</span>` : ''}</p>
            <div class="btn-row">${user.email ? '<button class="btn" data-pwreset>Email me a password reset link</button>' : ''}<button class="btn" data-signout>Sign out</button></div>`
@@ -98,7 +98,7 @@ export function renderSettings() {
     </section>
 
     <section class="card sbox about">
-      <h3>About the estimates</h3>
+      <h2>About the estimates</h2>
       <p class="muted small">Food estimates come from a built-in list of about 230 common foods and restaurant dishes (approximate USDA-style values), matched against your description. There's no AI and no image recognition. The photo is your visual record, and the portion buttons let you scale the estimate by eye. Calorie burn uses standard MET values. Treat every number as a starting point and edit it.</p>
     </section>
   </div>`;

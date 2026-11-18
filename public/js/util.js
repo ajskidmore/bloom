@@ -57,9 +57,17 @@ export const inToCm = (i) => i * 2.54;
 
 /* ---------- Toast ---------- */
 let toastTimer;
-export function toast(msg, ms = 2600) {
+// A polite live region, so screen readers announce each message. It stays up long enough to read:
+// at least 4 seconds, longer for longer messages.
+export function toast(msg, ms) {
   let el = $('#toast');
-  if (!el) { el = document.createElement('div'); el.id = 'toast'; el.className = 'toast'; document.body.appendChild(el); }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast'; el.className = 'toast';
+    el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+    ($('#content') || document.body).appendChild(el);
+  }
+  ms = ms || Math.max(4000, 1500 + String(msg).length * 60);
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
@@ -72,6 +80,9 @@ export function modal(html, { wide = false, onClose } = {}) {
   const dlg = document.createElement('dialog');
   dlg.className = 'modal' + (wide ? ' wide' : '');
   dlg.innerHTML = html;
+  // Name the dialog after its first heading, so it's announced as e.g. "Log a workout, dialog".
+  const h = dlg.querySelector('h1, h2, h3');
+  if (h) { h.id ||= 'dlg-title-' + Math.random().toString(36).slice(2, 8); dlg.setAttribute('aria-labelledby', h.id); }
   document.body.appendChild(dlg);
   dlg.addEventListener('close', () => { dlg.remove(); onClose?.(); });
   dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
