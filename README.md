@@ -3,6 +3,8 @@
 Habits, food, sleep, water, mood, steps, workouts and weight, plus a flower that flourishes when you keep your routine
 and wilts when you don't. Plain HTML/CSS/JS ES modules, no build step. Firebase Auth + Firestore for accounts and sync.
 
+**Try it:** https://bloom-wellness-28cww.web.app/?demo opens a demo with sample data, no account needed (or tap *Try the demo* on the sign-in screen). Demo data stays in your browser.
+
 ## Features
 - **Accounts**: email/password sign-up and sign-in, Google sign-in, and password reset by email. Every user's data is private (see `firestore.rules`).
 - **Today**: daily, weekly and monthly habits (check off, at least N, less than N), with streak dots and the flower.
@@ -66,6 +68,6 @@ users/{uid}/photos/{mealId} { data: <jpeg data URL> }
 ## Code map (`public/js`)
 `app.js` shell, auth screens and routing · `state.js` state, selectors and the goal calculator · `store.js` local and Firebase backends ·
 `habits.js` Today tab and scoring · `food.js` Food tab and meal logger · `foodDb.js` food list · `foodParse.js` description parser ·
-`health.js` Health tab and workouts · `trends.js` charts · `social.js` friends, bell and reminders · `settings.js` · `flower.js` mascot · `util.js`.
+`health.js` Health tab and workouts · `trends.js` charts · `social.js` friends, bell and reminders · `demo.js` demo mode and sample data · `icons.js` Lucide icons · `settings.js` · `flower.js` mascot · `util.js`.
 
 Estimates are approximate and not medical advice.

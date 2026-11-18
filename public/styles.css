@@ -575,3 +575,16 @@ body:not([data-tab="today"]):not([data-tab="food"]) .fab { display: none; }
 .chart .goal-t { paint-order: stroke; stroke: var(--card); stroke-width: 4px; stroke-linejoin: round; }
 .field-inline > .muted:first-child { min-width: 52px; }
 .scale button { padding: 0 4px; }
+
+/* ---------- Demo ---------- */
+.demo-cta { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.demo-cta p { margin: 0; }
+.demo-btn { background: var(--green-soft); color: var(--green); width: 100%; display: inline-flex; align-items: center; justify-content: center; padding: 11px; }
+.demo-btn:hover { background: #d3ead7; }
+.banner { flex-wrap: wrap; }
+.banner #bannerText { flex: 1 1 220px; }
+.banner-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.banner-actions:empty { display: none; }
+.banner-actions .btn:not(.primary) { background: #fff; }
+.file-btn { position: relative; cursor: pointer; }
+.file-btn:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }

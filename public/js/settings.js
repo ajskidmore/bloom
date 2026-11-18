@@ -79,11 +79,11 @@ export function renderSettings() {
 
     <section class="card sbox">
       <h2>Your data</h2>
-      <p class="muted small">${store.mode === 'cloud' ? 'Synced to your account and private to you.' : 'Saved in this browser only (local mode).'} Meal photos are stored compressed (about 50 KB each).</p>
+      <p class="muted small">${store.mode === 'cloud' ? 'Synced to your account and private to you.' : store.mode === 'demo' ? 'This is sample data for the demo, saved only in this browser.' : 'Saved in this browser only (local mode).'} Meal photos are stored compressed (about 50 KB each).</p>
       <div class="btn-row">
-        <button class="btn" data-export>⬇ Export backup (.json)</button>
-        <label class="btn">⬆ Import backup<input type="file" accept="application/json,.json" hidden data-import></label>
-        <button class="btn ghost danger" data-wipe>Delete all my data</button>
+        <button class="btn" data-export>Export backup (.json)</button>
+        <label class="btn file-btn">Import backup<input type="file" accept="application/json,.json" class="sr-only" data-import></label>
+        <button class="btn ghost danger" data-wipe>${store.mode === 'demo' ? 'Reset demo data' : 'Delete all my data'}</button>
       </div>
     </section>
 
@@ -94,7 +94,10 @@ export function renderSettings() {
       ${store.mode === 'cloud' && user
         ? `<p>Signed in as <b>${esc(user.displayName || user.email || 'you')}</b>${user.email && user.displayName ? ` <span class="muted">(${esc(user.email)})</span>` : ''}</p>
            <div class="btn-row">${user.email ? '<button class="btn" data-pwreset>Email me a password reset link</button>' : ''}<button class="btn" data-signout>Sign out</button></div>`
-        : '<p class="muted small">Local mode: no account. Deploy to Firebase to sign in and sync across devices.</p>'}
+        : store.mode === 'demo'
+          ? `<p>You're exploring the demo. Create a free account to keep your own data, sync across devices and add real friends.</p>
+             <div class="btn-row"><button class="btn primary" data-demo-signup>Create free account</button><button class="btn" data-demo-exit>Exit demo</button></div>`
+          : '<p class="muted small">Local mode: no account. Deploy to Firebase to sign in and sync across devices.</p>'}
     </section>
 
     <section class="card sbox about">
@@ -121,10 +124,12 @@ export function bindSettings() {
     if (e.target.closest('[data-export]')) { exportData(); return; }
     const wipe = e.target.closest('[data-wipe]');
     if (wipe) {
-      if (wipe.dataset.armed !== '1') { wipe.dataset.armed = '1'; wipe.textContent = 'Tap again to permanently delete everything'; return; }
-      await store.resetAll(); toast('All data deleted'); emit('all'); return;
+      if (wipe.dataset.armed !== '1') { wipe.dataset.armed = '1'; wipe.textContent = store.mode === 'demo' ? 'Tap again to reset the sample data' : 'Tap again to permanently delete everything'; return; }
+      await store.resetAll(); toast(store.mode === 'demo' ? 'Demo data reset' : 'All data deleted'); emit('all'); return;
     }
     if (e.target.closest('[data-signout]')) { store.auth.signOut(); return; }
+    if (e.target.closest('[data-demo-signup]')) { import('./demo.js').then((m) => m.exitDemo(true)); return; }
+    if (e.target.closest('[data-demo-exit]')) { import('./demo.js').then((m) => m.exitDemo(false)); return; }
     if (e.target.closest('[data-pwreset]')) { try { await store.auth.reset(S.user.email); toast('Reset link sent to ' + S.user.email); } catch (err) { toast(err.message); } }
   });
 

@@ -50,7 +50,7 @@ async function startWatch() {
 
 /* ---------- rendering (called from Settings) ---------- */
 function sendHTML() {
-  if (!fb()) return `<section class="card sbox"><h2>Send feedback</h2><p class="muted small">Sign in to send feedback.</p></section>`;
+  if (!fb()) return `<section class="card sbox"><h2>Send feedback</h2><p class="muted small">${store?.mode === 'demo' ? 'Create a free account to send feedback.' : 'Sign in to send feedback.'}</p></section>`;
   const email = S.user?.email;
   return `<section class="card sbox" id="feedback">
     <h2>Send feedback</h2>

@@ -36,18 +36,21 @@ async function idbOp(mode, fn) {
   });
 }
 
-export function localStore() {
+/** Browser-only storage. The demo uses its own keys, sample data and user (see demo.js). */
+export function localStore({ keys = LK, mode = 'local', user = { local: true, displayName: 'Local' }, seed = null } = {}) {
+  const LK = keys;
   const saveMain = () => write(LK.main, S.main);
   return {
-    mode: 'local',
+    mode,
     start() {
+      if (seed) seed({ read, write, keys: LK });
       let main = read(LK.main);
-      if (!main) main = read(LK.v1); // migrate from v1
+      if (!main && LK.v1) main = read(LK.v1); // migrate from v1
       setMain(main);
       S.days = read(LK.days) || {};
       S.meals = read(LK.meals) || {};
-      S.user = { local: true, displayName: 'Local' };
-      S.mainReady = true;
+      S.user = { ...user };
+      S.mainReady = true; S.daysReady = true;
       emit('user');
       emit('all');
     },
@@ -66,8 +69,10 @@ export function localStore() {
       emit('all');
     },
     async resetAll() {
-      ['main', 'days', 'meals', 'v1'].forEach((k) => { try { localStorage.removeItem(LK[k]); } catch {} });
-      setMain(null); S.days = {}; S.meals = {}; emit('all');
+      ['main', 'days', 'meals', 'v1', 'seeded'].forEach((k) => { try { if (LK[k]) localStorage.removeItem(LK[k]); } catch {} });
+      if (seed) { seed({ read, write, keys: LK }); setMain(read(LK.main)); S.days = read(LK.days) || {}; S.meals = read(LK.meals) || {}; }
+      else { setMain(null); S.days = {}; S.meals = {}; }
+      emit('all');
     },
   };
 }

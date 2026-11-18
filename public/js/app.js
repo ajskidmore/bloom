@@ -11,6 +11,8 @@ import { renderTrends, bindTrends } from './trends.js';
 import { renderSettings, bindSettings } from './settings.js';
 import { renderFriends, initSocial, setSocialView } from './social.js';
 import { bindFeedback } from './feedback.js';
+import { demoRequested, demoStore, enterDemo, exitDemo } from './demo.js';
+import { icon } from './icons.js';
 
 const TABS = {
   today: { el: '#tab-today', render: renderToday, dated: true, title: 'Today' },
@@ -128,6 +130,7 @@ function renderAuth(mode = 'signin', msg = '') {
       <button class="btn primary big" type="submit">${mode === 'signup' ? 'Create account' : mode === 'reset' ? 'Send reset link' : 'Sign in'}</button>
     </form>
     ${mode !== 'reset' ? `<div class="or"><span>or</span></div><button class="btn google" data-google>${google} Continue with Google</button>` : ''}
+    ${mode !== 'reset' ? `<div class="demo-cta"><p class="muted small">Just looking?</p><button type="button" class="btn demo-btn" data-demo>${icon('sparkles', { size: 18 })}Try the demo, no sign-up</button></div>` : ''}
     <div class="auth-links">
       ${mode === 'signin' ? '<a href="#" data-mode="signup">Create an account</a><a href="#" data-mode="reset">Forgot password?</a>' : '<a href="#" data-mode="signin">← Back to sign in</a>'}
     </div>`;
@@ -146,6 +149,7 @@ function renderAuth(mode = 'signin', msg = '') {
       else await store.auth.signIn(email, pw);
     } catch (ex) { err(ex.message); btn.disabled = false; }
   });
+  $('#auth [data-demo]')?.addEventListener('click', enterDemo);
   $('#auth [data-google]')?.addEventListener('click', async () => { try { await store.auth.google(); } catch (ex) { err(ex.message); } });
   $$('#auth [data-mode]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); renderAuth(a.dataset.mode); }));
 }
@@ -165,14 +169,14 @@ function onUser() {
       ? `<a href="#settings" class="avatar" title="${esc(name)}"><img src="${esc(S.user.photoURL)}" alt="" referrerpolicy="no-referrer"></a>`
       : `<a href="#settings" class="avatar" title="${esc(name)}">${esc(initial)}</a>`;
   } else area.innerHTML = '';
-  if (!signedIn) renderAuth();
+  if (!signedIn) renderAuth(location.hash === '#signup' ? 'signup' : 'signin');
   else go(location.hash.slice(1) || 'today');
 }
 
 /* ---------- boot ---------- */
 // Phones (especially home-screen apps) can keep an old copy of index.html. If the page is missing
 // parts this code needs, reload once with fresh files instead of failing to a blank screen.
-const PAGE_PARTS = ['#bellBtn', '#tab-friends', '[data-tab="feed"]', '#friendsView'];
+const PAGE_PARTS = ['#bellBtn', '#tab-friends', '[data-tab="feed"]', '#friendsView', '#bannerActions'];
 function pageIsStale() { return PAGE_PARTS.some((s) => !document.querySelector(s)); }
 // Segmented controls and choice chips show their selection with an "on" class. Mirror that into
 // aria-pressed everywhere, so screen readers hear "selected" too, wherever the control was rendered.
@@ -203,9 +207,17 @@ async function boot() {
   }
   try { sessionStorage.removeItem('bloom-fresh'); } catch {}
   const forceLocal = new URLSearchParams(location.search).has('local');
-  const cfg = forceLocal ? null : await resolveConfig(FIREBASE_CONFIG);
+  const demo = !forceLocal && demoRequested();
+  const cfg = forceLocal || demo ? null : await resolveConfig(FIREBASE_CONFIG);
   let s;
-  if (cfg) {
+  if (demo) {
+    s = demoStore();
+    try { sessionStorage.setItem('bloom-demo', '1'); } catch {}
+    showBanner("You're trying a demo with sample data. Changes stay in this browser.", [
+      ['Create free account', () => exitDemo(true), 'primary'],
+      ['Exit demo', () => exitDemo(false), ''],
+    ]);
+  } else if (cfg) {
     try { s = await firebaseStore(cfg); }
     catch (err) { console.error(err); s = localStore(); showBanner("Couldn't load Firebase, so you're in local mode for now."); }
   } else {
@@ -233,7 +245,17 @@ async function boot() {
   setInterval(tick, 60_000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
 }
-function showBanner(text) { $('#bannerText').textContent = text; $('#banner').hidden = false; }
+function showBanner(text, actions = []) {
+  $('#bannerText').textContent = text;
+  const box = $('#bannerActions');
+  box.innerHTML = '';
+  actions.forEach(([label, fn, cls]) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = `btn small ${cls}`; b.textContent = label; b.onclick = fn;
+    box.appendChild(b);
+  });
+  $('#banner').hidden = false;
+}
 $('#bannerClose').onclick = () => { $('#banner').hidden = true; };
 
 boot().catch((err) => {

@@ -50,7 +50,7 @@ export function openWorkoutModal(dateKey, existing) {
       <label class="field grow"><span>Note (optional)</span><input name="note" placeholder="e.g. legs day, 5k" value="${esc(w.note || '')}"></label>
     </div>
     <p class="hint" data-hint aria-live="polite"></p>
-    ${store.mode === 'cloud' ? `<label class="check-row share-row"><input type="checkbox" name="share" ${(existing ? existing.share !== false : shareDefault()) ? 'checked' : ''}><span>Share to my feed <small class="muted">(friends see the type, time, calories and note)</small></span></label>` : ''}
+    ${store.social ? `<label class="check-row share-row"><input type="checkbox" name="share" ${(existing ? existing.share !== false : shareDefault()) ? 'checked' : ''}><span>Share to my feed <small class="muted">(friends see the type, time, calories and note)</small></span></label>` : ''}
     <div class="dlg-actions">
       ${existing ? '<button type="button" class="btn ghost danger" data-delete>Delete</button>' : ''}
       <span class="spacer"></span>

@@ -18,7 +18,7 @@ const kindIcon = (e, size = 18) => icon(EMOJI_ICON[e] || 'bell', { size });
 const postIcon = (p, size = 22) => icon(p.kind === 'workout' ? WORKOUT_ICON[p.workout] || 'activity' : p.kind === 'streak' ? 'flame' : 'flower-2', { size });
 
 export const SOC = { incoming: [], outgoing: [], friends: {}, friendIds: [], inbox: [], code: null, ready: false, posts: {}, myPosts: [], myPostsReady: false };
-const social = () => (store?.mode === 'cloud' && S.user && !S.user.local ? store.social : null);
+const social = () => (store?.social && S.user && !S.user.local ? store.social : null);
 
 /* ---------- small per-device storage ---------- */
 const LS = {
@@ -474,6 +474,7 @@ export function bindFriends() {
       }
       return;
     }
+    if (store.mode === 'demo' && e.target.closest('[data-copy], [data-invite]')) { toast('Create a free account to get your own friend code and invite link.'); return; }
     if (e.target.closest('[data-copy]')) { try { await navigator.clipboard.writeText(fmtCode(SOC.code)); toast('Code copied'); } catch { toast(fmtCode(SOC.code)); } return; }
     if (e.target.closest('[data-invite]')) { share(`Be my friend on Bloom and let's keep our flowers alive 🌼 My code is ${fmtCode(SOC.code)}.`, inviteLink()); return; }
     const acc = e.target.closest('[data-accept]'); if (acc) { acc.disabled = true; await acceptReq(acc.dataset.accept); return; }
